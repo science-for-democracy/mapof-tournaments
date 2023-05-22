@@ -1,5 +1,6 @@
 import itertools
 import json
+import pickle
 import os
 from collections import defaultdict
 from enum import Enum
@@ -7,8 +8,8 @@ from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
 from random import uniform
 
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
 from matplotlib.font_manager import json_dump
 from numpy.lib.twodim_base import triu_indices
 
@@ -18,8 +19,10 @@ from mapel.core.objects.Family import Family
 from mapel.core.objects.Instance import Instance
 from mapel.elections.objects.ElectionFamily import ElectionFamily
 from mapel.tournaments.objects.GraphSimilarity import (Distances,
-                                                       get_similatiry_measure)
+                                                       get_similarity_measure,
+                                                       parallel_runner)
 from progress.bar import Bar
+from tqdm.contrib.concurrent import process_map
 
 
 class TournamentInstance(Instance):
@@ -34,11 +37,32 @@ class TournamentInstance(Instance):
                          instance_id=instance_id,
                          culture_id=culture_id,
                          alpha=alpha)
+        if isinstance(graph, list):
+            graph = np.array(graph)
         if isinstance(graph, np.ndarray):
             self.graph = (nx.from_numpy_array(graph,
                                               create_using=nx.DiGraph()))
         else:
             self.graph = graph
+
+        self.sp_matrix = None
+
+    def to_shortest_paths_matrix(self):
+        if self.sp_matrix is not None:
+            return self.sp_matrix
+        sp_matrix = nx.to_numpy_array(self.graph)
+        n = len(sp_matrix)
+        sp_matrix = np.where(sp_matrix == 0, n, sp_matrix)
+        for i in range(n):
+            sp_matrix[i, i] = 0
+        # Floyd-Warshall
+        for k in range(n):
+            for i in range(n):
+                for j in range(n):
+                    sp_matrix[i, j] = min(sp_matrix[i, j],
+                                          sp_matrix[i, k] + sp_matrix[k, j])
+        self.sp_matrix = sp_matrix
+        return sp_matrix
 
     @staticmethod
     def from_compass(num_participants: int,
@@ -54,7 +78,7 @@ class TournamentInstance(Instance):
                     adjacency_matrix[i, j] = 1
             return TournamentInstance(adjacency_matrix, experiment_id,
                                       instance_id, culture_id)
-        elif compass == 'unordered':
+        elif compass == 'rock-paper-scissors':
             adjacency_matrix = np.zeros((num_participants, num_participants))
             for jump_length in range(1, num_participants // 2 + 1):
                 # For the last iteration with even number of participants, we only set half of the edges.
@@ -65,13 +89,14 @@ class TournamentInstance(Instance):
                     adjacency_matrix[i, j] = 1
             return TournamentInstance(adjacency_matrix, experiment_id,
                                       instance_id, culture_id)
-        elif compass == 'two_unordered':
+        elif compass == 'mixed':
             g1 = TournamentInstance.from_compass((num_participants + 1) // 2,
-                                                 'unordered', experiment_id,
+                                                 'ordered', experiment_id,
                                                  instance_id, culture_id).graph
             g2 = TournamentInstance.from_compass(num_participants // 2,
-                                                 'unordered', experiment_id,
-                                                 instance_id, culture_id).graph
+                                                 'rock-paper-scissors',
+                                                 experiment_id, instance_id,
+                                                 culture_id).graph
             g2 = nx.relabel_nodes(
                 g2, {i: i + (num_participants + 1) // 2
                      for i in g2.nodes})
@@ -81,9 +106,44 @@ class TournamentInstance(Instance):
                     g.add_edge(i, j)
             return TournamentInstance(g, experiment_id, instance_id,
                                       culture_id)
+        elif compass == 'test':
+
+            def force_edge(g, i, j):
+                if i == j:
+                    return
+                if g.has_edge(j, i):
+                    g.remove_edge(j, i)
+                if g.has_edge(i, j):
+                    return
+                g.add_edge(i, j)
+
+            graphs = []
+            if num_participants % 3 != 0:
+                graphs.append(
+                    TournamentInstance.from_compass(num_participants % 3,
+                                                    'rock-paper-scissors',
+                                                    experiment_id, instance_id,
+                                                    culture_id).graph)
+            for i in range(num_participants % 3, num_participants, 3):
+                g = TournamentInstance.from_compass(3, 'rock-paper-scissors',
+                                                    experiment_id, instance_id,
+                                                    culture_id).graph
+                g = nx.relabel_nodes(g, {j: j + i for j in g.nodes})
+                graphs.append(g)
+            g = graphs[0]
+            for i in range(1, len(graphs)):
+                g = nx.compose(g, graphs[i])
+            for g1 in range(len(graphs)):
+                for g2 in range(g1 + 1, len(graphs)):
+                    for i in graphs[g1].nodes:
+                        for j in graphs[g2].nodes:
+                            force_edge(g, i, j)
+
+            return TournamentInstance(g, experiment_id, instance_id,
+                                      culture_id)
         else:
             raise ValueError(
-                f'Compass {compass} not recognized. It should be one of the following: ordered, unordered, two_unordered.'
+                f'Compass {compass} not supported. Supported compasses are: ordered, rock-paper-scissors, mixed.'
             )
 
     @staticmethod
@@ -108,6 +168,7 @@ class TournamentInstance(Instance):
         n = election.num_candidates
         adjacency_matrix = np.zeros((n, n))
         pairwise_matrix = election.votes_to_pairwise_matrix()
+        print(pairwise_matrix)
         for i in range(n):
             for j in range(i + 1, n):
                 if pairwise_matrix[i, j] > pairwise_matrix[j, i]:
@@ -225,17 +286,11 @@ class TournamentFamily(Family):
             tournaments[k] = TournamentInstance.from_election(v)
         return tournaments
 
-    def prepare_from_approval_election_family(self):
-        # TODO
-        raise NotImplementedError
-
     def prepare_family(self, plot_path=None):
         if self.instance_type == 'tournament':
             family = self.prepare_tournament_family()
         elif self.instance_type == 'ordinal':
             family = self.prepare_from_ordinal_election_family()
-        elif self.instance_type == 'approval':
-            family = self.prepare_from_approval_election_family()
         else:
             raise ValueError(
                 f'Instance type {self.instance_type} not supported.')
@@ -354,8 +409,7 @@ class TournamentExperiment(Experiment):
         bar.start()
         for e, (i, t1) in enumerate(self.instances.items()):
             for j, t2 in list(self.instances.items())[e + 1:]:
-                self.distances[j][i] = self.distances[i][j] = metric(
-                    t1.graph, t2.graph)
+                self.distances[j][i] = self.distances[i][j] = metric(t1, t2)
                 bar.next()
 
     def _compute_distances_parallel(self, metric):
@@ -363,10 +417,11 @@ class TournamentExperiment(Experiment):
         instance_ids = list(self.instances.keys())
         tournaments = list(self.instances.values())
         indices = list(zip(*triu_indices(n, 1)))
-        work = [(tournaments[i].graph, tournaments[j].graph)
-                for i, j in indices]
-        with ThreadPool() as p:
-            distances = p.starmap(metric, work)
+        work = [(metric, tournaments[i], tournaments[j]) for i, j in indices]
+        with Pool() as p:
+            distances = list(
+                process_map(parallel_runner, work, total=len(work)))
+            # distances = p.starmap(metric, work)
         for d, (i, j) in zip(distances, indices):
             self.distances[instance_ids[j]][instance_ids[i]] = self.distances[
                 instance_ids[i]][instance_ids[j]] = d
@@ -374,29 +429,36 @@ class TournamentExperiment(Experiment):
     def compute_distances(self,
                           metric: Distances = Distances.GED_OPT,
                           parallel: bool = False,
+                          path: str = '',
                           **kwargs):
-        if parallel:
-            self._compute_distances_parallel(
-                get_similatiry_measure(metric, **kwargs))
+        if path and os.path.exists(path):
+            with open(path, 'rb') as f:
+                self.distances = pickle.load(f)
         else:
-            self._compute_distances(get_similatiry_measure(metric, **kwargs))
-        # print(json.dumps(self.distances, indent=4))
+            if parallel:
+                self._compute_distances_parallel(
+                    get_similarity_measure(metric, **kwargs))
+            else:
+                self._compute_distances(
+                    get_similarity_measure(metric, **kwargs))
+            if path:
+                with open(path, 'wb') as f:
+                    pickle.dump(self.distances, f)
+
+        if isinstance(self.distances, dict):
+            print(json.dumps(self.distances, indent=4))
+        else:
+            print(self.distances)
+        # Print top 10 largest distances
+        all = []
+        for k, v in self.distances.items():
+            for k2, v2 in v.items():
+                all.append((k, k2, v2))
+        top = sorted(all, key=lambda x: x[2], reverse=True)[:250]
+        print(''.join([str(x) + '\n' for x in top]))
 
     def save_tournament_plots(self, path: str = 'graphs'):
+        if not os.path.exists(path):
+            os.makedirs(path)
         for k, v in self.instances.items():
             v.save_graph_plot(os.path.join(path, str(k)))
-
-    # def compute_distances_multi(self, count):
-    #     self.compute_distances()
-    #     instances = {}
-    #     distances = defaultdict(dict)
-    #     n = len(self.distances)
-    #     for i in range(count):
-    #         for k, v in self.instances.items():
-    #             instances[i * n + k] = TournamentInstance(v.graph, i * n + k)
-    #     for i in instances.keys():
-    #         for j in instances.keys():
-    #             distances[i][j] = self.distances[i % n][j % n]
-    #     self.instances = instances
-    #     self.distances = distances
-    #     print(len(distances))
