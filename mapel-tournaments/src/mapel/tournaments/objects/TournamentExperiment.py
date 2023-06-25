@@ -375,13 +375,12 @@ class TournamentExperiment(Experiment):
                           metric: Distances = Distances.GED_OPT,
                           parallel: bool = False,
                           **kwargs):
-        print(metric)
         if parallel:
             self._compute_distances_parallel(
                 get_similatiry_measure(metric, **kwargs))
         else:
             self._compute_distances(get_similatiry_measure(metric, **kwargs))
-        print(json.dumps(self.distances, indent=4))
+        # print(json.dumps(self.distances, indent=4))
 
     def save_tournament_plots(self, path: str = 'graphs'):
         for k, v in self.instances.items():
