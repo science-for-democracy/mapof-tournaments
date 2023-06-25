@@ -12,7 +12,6 @@ from scipy import stats
 
 import networkx as nx
 import tqdm
-import gmatch4py as gm
 
 
 class Distances(Enum):
