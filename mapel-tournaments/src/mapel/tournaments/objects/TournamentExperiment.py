@@ -253,7 +253,7 @@ class TournamentFamily(Family):
     def prepare_tournament_family(self):
         if self.single:
             if 'compass' in self.params:
-                return {
+                tournaments = {
                     self.family_id:
                     TournamentInstance.from_compass(self.num_participants, self.params['compass'],
                                                     self.experiment_id, self.family_id, self.culture_id)
@@ -261,7 +261,7 @@ class TournamentFamily(Family):
 
             elif 'adjacency_matrix' in self.params:
                 adjacency_matrix = self.params['adjacency_matrix']
-                return {
+                tournaments = {
                     self.family_id:
                     TournamentInstance(adjacency_matrix, self.experiment_id, self.family_id, self.culture_id)
                 }
@@ -274,7 +274,7 @@ class TournamentFamily(Family):
                 instance_id = f'{self.family_id}_{i}'
                 tournaments[instance_id] = TournamentInstance(g, self.experiment_id, instance_id,
                                                               self.culture_id)
-            return tournaments
+            tournaments = tournaments
         else:
             weights = self.params['weights']
             self.num_participants = len(weights)
@@ -283,7 +283,9 @@ class TournamentFamily(Family):
                 instance_id = f'{self.family_id}_{i}'
                 tournaments[instance_id] = TournamentInstance.from_weights(weights, self.experiment_id,
                                                                            instance_id, self.culture_id)
-            return tournaments
+            tournaments = tournaments
+        self.instance_ids = list(tournaments.keys())
+        return tournaments
 
     def prepare_from_ordinal_election_family(self):
         num_voters = self.params['num_voters'] if 'num_voters' in self.params else self.num_participants
@@ -344,9 +346,7 @@ class TournamentExperiment(Experiment):
                          embedding_id=embedding_id,
                          fast_import=fast_import,
                          with_matrix=with_matrix)
-        self.instances = {}
-        self.distances = defaultdict(dict)
-        self.families = {}
+        self.instance_type = 'tournaments'
 
     def create_structure(self) -> None:
         if not os.path.isdir("experiments/"):
@@ -444,7 +444,7 @@ class TournamentExperiment(Experiment):
                     alpha = float(row['alpha'])
 
                 if 'show' in row.keys():
-                    show = row['show'].strip() == 't'
+                    show = row['show'].strip() == 'True'
 
                 if 'label' in row.keys():
                     label = str(row['label'])
@@ -561,7 +561,8 @@ class TournamentExperiment(Experiment):
         bar.start()
         for e, (i, t1) in enumerate(self.instances.items()):
             for j, t2 in list(self.instances.items())[e + 1:]:
-                self.distances[j][i] = self.distances[i][j] = metric(t1, t2)
+                if i not in self.distances or j not in self.distances:
+                    self.distances[j][i] = self.distances[i][j] = metric(t1, t2)
                 bar.next()
 
     def _compute_distances_parallel(self, metric):
@@ -569,7 +570,8 @@ class TournamentExperiment(Experiment):
         instance_ids = list(self.instances.keys())
         tournaments = list(self.instances.values())
         indices = list(zip(*triu_indices(n, 1)))
-        work = [(metric, tournaments[i], tournaments[j]) for i, j in indices]
+        work = [(metric, tournaments[i], tournaments[j]) for i, j in indices
+                if instance_ids[i] not in self.distances or instance_ids[j] not in self.distances]
         with Pool() as p:
             distances = list(process_map(parallel_runner, work, total=len(work)))
             # distances = p.starmap(metric, work)
@@ -593,40 +595,30 @@ class TournamentExperiment(Experiment):
                         time_ = str(times[election_1][election_2]) if times else 0
                         writer.writerow([election_1, election_2, distance, time_])
 
-    def compute_distances(self, metric: Distances = Distances.GED_OPT, parallel: bool = False, **kwargs):
+    def compute_distances(self,
+                          metric: Distances = Distances.GED_OPT,
+                          parallel: bool = False,
+                          print_top=False,
+                          **kwargs):
         if metric:
             self.distance_id = metric
-        if self.store:
-            try:
-                self.distances, _times, _stds, _mappings = self.add_distances_to_experiment()
-                print("Distances loaded from file")
-                print(self.distances)
-            except FileNotFoundError:
-                # load from pickle
-                self.distances = pickle.load(
-                    open(os.path.join(os.getcwd(), "distances", "full-non-isomorphic_7.pickle"), 'rb'))
-                self._store_distances_to_file(metric, self.distances, None, False)
-                print("Distances not found, computing them...")
-                pass
-        if len(self.distances) == 0:
-            if parallel:
-                self._compute_distances_parallel(get_similarity_measure(metric, **kwargs))
-            else:
-                self._compute_distances(get_similarity_measure(metric, **kwargs))
-            if self.store:
-                self._store_distances_to_file(metric, self.distances, None, False)
-
-        if isinstance(self.distances, dict):
-            print(json.dumps(self.distances, indent=4))
+        if parallel:
+            self._compute_distances_parallel(get_similarity_measure(metric, **kwargs))
         else:
-            print(self.distances)
-        # Print top 10 largest distances
-        all = []
-        for k, v in self.distances.items():
-            for k2, v2 in v.items():
-                all.append((k, k2, v2))
-        top = sorted(all, key=lambda x: x[2], reverse=True)[:250]
-        print(''.join([str(x) + '\n' for x in top]))
+            self._compute_distances(get_similarity_measure(metric, **kwargs))
+
+        if print_top:
+            if isinstance(self.distances, dict):
+                print(json.dumps(self.distances, indent=4))
+            else:
+                print(self.distances)
+            all = []
+            for k, v in self.distances.items():
+                for k2, v2 in v.items():
+                    all.append((k, k2, v2))
+            top = sorted(all, key=lambda x: x[2], reverse=True)[:250]
+            print(''.join([str(x) + '\n' for x in top]))
+        self._store_distances_to_file(self.distance_id, self.distances, None, False)
 
     def save_tournament_plots(self, path: str = 'graphs'):
         if not os.path.exists(path):

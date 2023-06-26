@@ -54,8 +54,7 @@ def get_similarity_measure(distance, **kwargs):
         return nx.graph_edit_distance
     elif distance == Distances.GED_OPT:
         opt = kwargs['opt'] if 'opt' in kwargs else 1
-        return lambda u, v: get_nth_or_last(
-            nx.optimize_graph_edit_distance(u, v), opt)
+        return lambda u, v: get_nth_or_last(nx.optimize_graph_edit_distance(u, v), opt)
     elif distance == Distances.DEGREE_EMD:
         return degree_earthmover_distance
     elif distance == Distances.SP:
@@ -74,8 +73,7 @@ def get_matching_cost_positionwise(u, v, inner_distance):
     sp2.sort(axis=1)
     # sp2 /= sp2.sum(axis=1, keepdims=True)
     n = len(sp1)
-    return [[inner_distance(sp1[i], sp2[j]) for i in range(n)]
-            for j in range(n)]
+    return [[inner_distance(sp1[i], sp2[j]) for i in range(n)] for j in range(n)]
 
 
 def ged_blp_wrapper(u, v):
@@ -94,26 +92,22 @@ def ged_blp(u, v):
     x = np.ndarray(shape=(n, n), dtype=object)
     for i in range(n):
         for j in range(n):
-            x[i, j] = m.addVar(vtype=gp.GRB.BINARY,
-                               name='x_{},{}'.format(i, j))
+            x[i, j] = m.addVar(vtype=gp.GRB.BINARY, name='x_{},{}'.format(i, j))
 
     # Edge matching variables
     y = np.ndarray(shape=(n, n, n, n), dtype=object)
     for i, j in u.edges():
         for k, l in v.edges():
-            y[i, j, k, l] = m.addVar(vtype=gp.GRB.BINARY,
-                                     name='y_{},{},{},{}'.format(i, j, k, l))
+            y[i, j, k, l] = m.addVar(vtype=gp.GRB.BINARY, name='y_{},{},{},{}'.format(i, j, k, l))
 
     # Edge reversed variables
     r = np.ndarray(shape=(n, n), dtype=object)
     for i in range(n):
         for j in range(n):
-            r[i, j] = m.addVar(vtype=gp.GRB.BINARY,
-                               name='r_{},{}'.format(i, j))
+            r[i, j] = m.addVar(vtype=gp.GRB.BINARY, name='r_{},{}'.format(i, j))
 
     # Objective
-    m.setObjective(gp.quicksum(r[i, j] for i in range(n) for j in range(n)),
-                   gp.GRB.MINIMIZE)
+    m.setObjective(gp.quicksum(r[i, j] for i in range(n) for j in range(n)), gp.GRB.MINIMIZE)
 
     # Constraints
     # Vertex matching constraints
