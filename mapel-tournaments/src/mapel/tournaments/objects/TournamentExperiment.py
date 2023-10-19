@@ -562,6 +562,8 @@ class TournamentExperiment(Experiment):
         for e, (i, t1) in enumerate(self.instances.items()):
             for j, t2 in list(self.instances.items())[e + 1:]:
                 if i not in self.distances or j not in self.distances:
+                    self.distances.setdefault(i, dict())
+                    self.distances.setdefault(j, dict())
                     self.distances[j][i] = self.distances[i][j] = metric(t1, t2)
                 bar.next()
 
@@ -576,6 +578,8 @@ class TournamentExperiment(Experiment):
             distances = list(process_map(parallel_runner, work, total=len(work)))
             # distances = p.starmap(metric, work)
         for d, (i, j) in zip(distances, indices):
+            self.distances.setdefault(instance_ids[i], dict())
+            self.distances.setdefault(instance_ids[j], dict())
             self.distances[instance_ids[j]][instance_ids[i]] = self.distances[instance_ids[i]][
                 instance_ids[j]] = d
 
@@ -600,6 +604,8 @@ class TournamentExperiment(Experiment):
                           parallel: bool = False,
                           print_top=False,
                           **kwargs):
+        if not self.distances:
+            self.distances = dict()
         if metric:
             self.distance_id = metric
         if parallel:
