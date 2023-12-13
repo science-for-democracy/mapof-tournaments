@@ -2,632 +2,409 @@ import ast
 import csv
 import itertools
 import json
-import pickle
 import os
+import pickle
+import time
 from collections import defaultdict
 from enum import Enum
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
 from random import uniform
 
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+import pandas_access as mdb
 import networkx as nx
+import pandas as pd
+from tqdm import tqdm
 from matplotlib.font_manager import json_dump
 from numpy.lib.twodim_base import triu_indices
 from progress.bar import Bar
 from tqdm.contrib.concurrent import process_map
 
+import mapel.core.persistence.experiment_exports as exports
 from mapel.core.objects.Experiment import Experiment
 from mapel.core.objects.Family import Family
 from mapel.core.objects.Instance import Instance
 from mapel.core.utils import make_folder_if_do_not_exist
 from mapel.elections.objects.ElectionFamily import ElectionFamily
-from mapel.tournaments.objects.GraphSimilarity import (Distances, get_similarity_measure, parallel_runner,
-                                                       ged_blp)
-
-
-class TournamentInstance(Instance):
-
-    def __init__(self,
-                 graph,
-                 experiment_id: str,
-                 instance_id: str,
-                 culture_id: str = 'none',
-                 alpha: float = np.NaN) -> None:
-        super().__init__(experiment_id=experiment_id,
-                         instance_id=instance_id,
-                         culture_id=culture_id,
-                         alpha=alpha)
-        if isinstance(graph, list):
-            graph = np.array(graph)
-        if isinstance(graph, np.ndarray):
-            self.graph = (nx.from_numpy_array(graph, create_using=nx.DiGraph()))
-        else:
-            self.graph = graph
-
-        self.sp_matrix = None
-
-    def to_shortest_paths_matrix(self):
-        if self.sp_matrix is not None:
-            return self.sp_matrix
-        sp_matrix = nx.to_numpy_array(self.graph)
-        n = len(sp_matrix)
-        sp_matrix = np.where(sp_matrix == 0, n, sp_matrix)
-        for i in range(n):
-            sp_matrix[i, i] = 0
-        # Floyd-Warshall
-        for k in range(n):
-            for i in range(n):
-                for j in range(n):
-                    sp_matrix[i, j] = min(sp_matrix[i, j], sp_matrix[i, k] + sp_matrix[k, j])
-        self.sp_matrix = sp_matrix
-        return sp_matrix
-
-    @staticmethod
-    def from_compass(num_participants: int,
-                     compass: str,
-                     experiment_id: str,
-                     instance_id: str,
-                     culture_id: str = 'none'):
-        compass = compass.lower()
-        if compass == 'ordered':
-            adjacency_matrix = np.zeros((num_participants, num_participants))
-            for i in range(num_participants):
-                for j in range(i + 1, num_participants):
-                    adjacency_matrix[i, j] = 1
-            return TournamentInstance(adjacency_matrix, experiment_id, instance_id, culture_id)
-        elif compass == 'rock-paper-scissors':
-            adjacency_matrix = np.zeros((num_participants, num_participants))
-            for jump_length in range(1, num_participants // 2 + 1):
-                # For the last iteration with even number of participants, we only set half of the edges.
-                for i in range(num_participants if jump_length < (num_participants + 1) //
-                               2 else num_participants // 2):
-                    j = (i + jump_length) % num_participants
-                    adjacency_matrix[i, j] = 1
-            return TournamentInstance(adjacency_matrix, experiment_id, instance_id, culture_id)
-        elif compass == 'mixed':
-            g1 = TournamentInstance.from_compass((num_participants + 1) // 2, 'ordered', experiment_id,
-                                                 instance_id, culture_id).graph
-            g2 = TournamentInstance.from_compass(num_participants // 2, 'rock-paper-scissors', experiment_id,
-                                                 instance_id, culture_id).graph
-            g2 = nx.relabel_nodes(g2, {i: i + (num_participants + 1) // 2 for i in g2.nodes})
-            g = nx.compose(g1, g2)
-            for i in g1.nodes:
-                for j in g2.nodes:
-                    g.add_edge(i, j)
-            return TournamentInstance(g, experiment_id, instance_id, culture_id)
-        elif compass == 'test':
-
-            def force_edge(g, i, j):
-                if i == j:
-                    return
-                if g.has_edge(j, i):
-                    g.remove_edge(j, i)
-                if g.has_edge(i, j):
-                    return
-                g.add_edge(i, j)
-
-            graphs = []
-            if num_participants % 3 != 0:
-                graphs.append(
-                    TournamentInstance.from_compass(num_participants % 3, 'rock-paper-scissors', experiment_id,
-                                                    instance_id, culture_id).graph)
-            for i in range(num_participants % 3, num_participants, 3):
-                g = TournamentInstance.from_compass(3, 'rock-paper-scissors', experiment_id, instance_id,
-                                                    culture_id).graph
-                g = nx.relabel_nodes(g, {j: j + i for j in g.nodes})
-                graphs.append(g)
-            g = graphs[0]
-            for i in range(1, len(graphs)):
-                g = nx.compose(g, graphs[i])
-            for g1 in range(len(graphs)):
-                for g2 in range(g1 + 1, len(graphs)):
-                    for i in graphs[g1].nodes:
-                        for j in graphs[g2].nodes:
-                            force_edge(g, i, j)
-
-            return TournamentInstance(g, experiment_id, instance_id, culture_id)
-        else:
-            raise ValueError(
-                f'Compass {compass} not supported. Supported compasses are: ordered, rock-paper-scissors, mixed.'
-            )
-
-    @staticmethod
-    def from_weights(weights, experiment_id: str, instance_id: str, culture_id: str = 'none'):
-        n = len(weights)
-        adjacency_matrix = np.zeros((n, n))
-        for i in range(n):
-            for j in range(i + 1, n):
-                p1 = weights[i] / (weights[i] + weights[j])
-                if uniform(0, 1) < p1:
-                    adjacency_matrix[i, j] = 1
-                else:
-                    adjacency_matrix[j, i] = 1
-        return TournamentInstance(adjacency_matrix, experiment_id, instance_id, culture_id)
-
-    @staticmethod
-    def from_election(election):
-        n = election.num_candidates
-        adjacency_matrix = np.zeros((n, n))
-        pairwise_matrix = election.votes_to_pairwise_matrix()
-        print(pairwise_matrix)
-        for i in range(n):
-            for j in range(i + 1, n):
-                if pairwise_matrix[i, j] > pairwise_matrix[j, i]:
-                    adjacency_matrix[i, j] = 1
-                else:
-                    adjacency_matrix[j, i] = 1
-        return TournamentInstance(adjacency_matrix, election.experiment_id, election.instance_id,
-                                  election.culture_id, election.alpha)
-
-    def save_graph_plot(self, path, **kwargs):
-        fig = plt.figure()
-        nx.draw_circular(self.graph, ax=fig.add_subplot(), labels=dict(self.graph.out_degree()), **kwargs)
-        plt.savefig(path)
-        plt.close('all')
-
-
-class TournamentFamily(Family):
-
-    def __init__(self,
-                 culture_id: str = "none",
-                 family_id='none',
-                 params: dict = dict(),
-                 size: int = 1,
-                 label: str = "none",
-                 color: str = "black",
-                 alpha: float = 1.,
-                 ms: int = 20,
-                 show=True,
-                 marker='o',
-                 starting_from: int = 0,
-                 path: dict = dict(),
-                 single: bool = False,
-                 num_participants=10,
-                 tournament_ids=None,
-                 instance_type: str = 'tournament',
-                 experiment_id: str = 'none') -> None:
-
-        super().__init__(culture_id=culture_id,
-                         family_id=family_id,
-                         params=params,
-                         size=size,
-                         label=label,
-                         color=color,
-                         alpha=alpha,
-                         ms=ms,
-                         show=show,
-                         marker=marker,
-                         starting_from=starting_from,
-                         path=path,
-                         single=single,
-                         instance_ids=tournament_ids)
-
-        self.num_participants = num_participants
-        self.instance_type = instance_type
-        self.experiment_id = experiment_id
-
-    NON_ISO_FILENAME_PREF = 'all-non-isomorphic-'
-
-    def get_all_non_isomorphic_graphs(self, n):
-        """Generate all non-isomorphic graphs with n nodes."""
-        pickle_path = (os.path.join(os.getcwd(), "experiments", self.experiment_id, "pickles"))
-        if not os.path.exists(pickle_path):
-            os.makedirs(pickle_path)
-        pickle_file = os.path.join(pickle_path, f'{TournamentFamily.NON_ISO_FILENAME_PREF}{n}.pkl')
-        if os.path.exists(pickle_file):
-            return pickle.load(open(pickle_file, 'rb'))
-
-        def gen(graph, pos):
-            if pos >= len(indices[0]):
-                yield graph.copy()
-                return
-            r, c = indices[0][pos], indices[1][pos]
-            graph[r, c] = 1
-            yield from gen(graph, pos + 1)
-            graph[r, c] = 0
-            graph[c, r] = 1
-            yield from gen(graph, pos + 1)
-            graph[c, r] = 0
-
-        indices = triu_indices(n, k=1)
-        graphs = []
-        for g1 in gen(np.zeros((n, n)), 0):
-            g1 = nx.from_numpy_array(g1, create_using=nx.DiGraph())
-            for g2 in graphs:
-                ged = ged_blp(g1, g2) < 0.5
-                iso = nx.is_isomorphic(g1, g2)
-                if ged and iso:
-                    break
-                if ged != iso:
-                    raise Exception('GED and isomorphism are not consistent')
-            else:
-                graphs.append(g1)
-                print(len(graphs))
-                # if (len(graphs) == COUNT[n]):
-                #     break
-        pickle.dump(graphs, open(pickle_file, 'wb'))
-        return graphs
-
-    def prepare_tournament_family(self):
-        if self.single:
-            if 'compass' in self.params:
-                tournaments = {
-                    self.family_id:
-                    TournamentInstance.from_compass(self.num_participants, self.params['compass'],
-                                                    self.experiment_id, self.family_id, self.culture_id)
-                }
-
-            elif 'adjacency_matrix' in self.params:
-                adjacency_matrix = self.params['adjacency_matrix']
-                tournaments = {
-                    self.family_id:
-                    TournamentInstance(adjacency_matrix, self.experiment_id, self.family_id, self.culture_id)
-                }
-            else:
-                raise ValueError('Either compass or adjacency_matrix must be specified for a single tournament.')
-        elif self.culture_id.startswith('all-non-isomorphic'):
-            n = int(self.culture_id.split('-')[-1])
-            tournaments = {}
-            for i, g in enumerate(self.get_all_non_isomorphic_graphs(n)):
-                instance_id = f'{self.family_id}_{i}'
-                tournaments[instance_id] = TournamentInstance(g, self.experiment_id, instance_id,
-                                                              self.culture_id)
-            tournaments = tournaments
-        else:
-            weights = self.params['weights']
-            self.num_participants = len(weights)
-            tournaments = {}
-            for i in range(self.size):
-                instance_id = f'{self.family_id}_{i}'
-                tournaments[instance_id] = TournamentInstance.from_weights(weights, self.experiment_id,
-                                                                           instance_id, self.culture_id)
-            tournaments = tournaments
-        self.instance_ids = list(tournaments.keys())
-        return tournaments
-
-    def prepare_from_ordinal_election_family(self):
-        num_voters = self.params['num_voters'] if 'num_voters' in self.params else self.num_participants
-        election_family = ElectionFamily(culture_id=self.culture_id,
-                                         family_id=self.family_id,
-                                         params=self.params,
-                                         label=self.label,
-                                         color=self.color,
-                                         alpha=self.alpha,
-                                         show=self.show,
-                                         size=self.size,
-                                         marker=self.marker,
-                                         starting_from=self.starting_from,
-                                         num_candidates=self.num_participants,
-                                         num_voters=num_voters,
-                                         path=self.path,
-                                         single=self.single,
-                                         instance_type=self.instance_type)
-        elections = election_family.prepare_family(self.experiment_id)
-        tournaments = {}
-        for k, v in elections.items():
-            tournaments[k] = TournamentInstance.from_election(v)
-        return tournaments
-
-    def prepare_family(self, plot_path=None):
-        if self.instance_type == 'tournament':
-            tournaments = self.prepare_tournament_family()
-        elif self.instance_type == 'ordinal':
-            tournaments = self.prepare_from_ordinal_election_family()
-        else:
-            raise ValueError(f'Instance type {self.instance_type} not supported.')
-        if plot_path is not None:
-            if not os.path.exists(plot_path):
-                os.makedirs(plot_path)
-            for k, v in tournaments.items():
-                v.save_graph_plot(os.path.join(plot_path, str(k)))
-        return tournaments
+from mapel.tournaments.objects.GraphSimilarity import (Distances,
+                                                       get_similarity_measure,
+                                                       parallel_runner)
+from mapel.tournaments.objects.TournamentFamily import TournamentFamily
 
 
 class TournamentExperiment(Experiment):
 
-    def __init__(self,
-                 instances=None,
-                 distances=None,
-                 coordinates=None,
-                 distance_id=Distances.GED_BLP,
-                 experiment_id=None,
-                 coordinates_names=None,
-                 embedding_id='kamada',
-                 fast_import=False,
-                 with_matrix=False):
-        super().__init__(instances=instances,
-                         distances=distances,
-                         coordinates=coordinates,
-                         distance_id=distance_id,
-                         experiment_id=experiment_id,
-                         coordinates_names=coordinates_names,
-                         embedding_id=embedding_id,
-                         fast_import=fast_import,
-                         with_matrix=with_matrix)
-        self.instance_type = 'tournaments'
+  def __init__(self,
+               instances=None,
+               distances=None,
+               coordinates=None,
+               distance_id=Distances.GED_BLP,
+               experiment_id=None,
+               coordinates_names=None,
+               embedding_id='mds',
+               fast_import=False,
+               with_matrix=False):
+    super().__init__(instances=instances,
+                     distances=distances,
+                     coordinates=coordinates,
+                     distance_id=distance_id,
+                     experiment_id=experiment_id,
+                     coordinates_names=coordinates_names,
+                     embedding_id=embedding_id,
+                     fast_import=fast_import,
+                     with_matrix=with_matrix)
+    self.instance_type = 'tournaments'
 
-    def create_structure(self) -> None:
-        if not os.path.isdir("experiments/"):
-            os.mkdir(os.path.join(os.getcwd(), "experiments"))
+  def create_structure(self) -> None:
+    if not os.path.isdir("experiments/"):
+      os.mkdir(os.path.join(os.getcwd(), "experiments"))
 
-        if not os.path.isdir("images/"):
-            os.mkdir(os.path.join(os.getcwd(), "images"))
+    if not os.path.isdir("images/"):
+      os.mkdir(os.path.join(os.getcwd(), "images"))
 
-        if not os.path.isdir("trash/"):
-            os.mkdir(os.path.join(os.getcwd(), "trash"))
-        try:
-            os.mkdir(os.path.join(os.getcwd(), "experiments", self.experiment_id))
-            os.mkdir(os.path.join(os.getcwd(), "experiments", self.experiment_id, "distances"))
-            # os.mkdir(
-            #     os.path.join(os.getcwd(), "experiments", self.experiment_id,
-            #                  "features"))
-            # os.mkdir(
-            #     os.path.join(os.getcwd(), "experiments", self.experiment_id,
-            #                  "coordinates"))
-            os.mkdir(os.path.join(os.getcwd(), "experiments", self.experiment_id, "tournaments"))
-            # os.mkdir(
-            #     os.path.join(os.getcwd(), "experiments", self.experiment_id,
-            #                  "matrices"))
+    if not os.path.isdir("trash/"):
+      os.mkdir(os.path.join(os.getcwd(), "trash"))
+    try:
+      os.mkdir(os.path.join(os.getcwd(), "experiments", self.experiment_id))
+      os.mkdir(os.path.join(os.getcwd(), "experiments", self.experiment_id, "distances"))
+      # os.mkdir(
+      #     os.path.join(os.getcwd(), "experiments", self.experiment_id,
+      #                  "features"))
+      # os.mkdir(
+      #     os.path.join(os.getcwd(), "experiments", self.experiment_id,
+      #                  "coordinates"))
+      os.mkdir(os.path.join(os.getcwd(), "experiments", self.experiment_id,
+                            "tournaments"))
+      # os.mkdir(
+      #     os.path.join(os.getcwd(), "experiments", self.experiment_id,
+      #                  "matrices"))
 
-            # PREPARE MAP.CSV FILE
+      # PREPARE MAP.CSV FILE
 
-            path = os.path.join(os.getcwd(), "experiments", self.experiment_id, "map.csv")
-            with open(path, 'w') as f:
-                f.write(
-                    "size;num_participants;culture_id;family_id;instance_type;color;marker;alpha;show;label;path;params\n"
-                )
-                print("Initialized empty experiment. Add families at " + path)
-                exit(0)
-        except FileExistsError:
-            print("Experiment already exists!")
+      path = os.path.join(os.getcwd(), "experiments", self.experiment_id, "map.csv")
+      with open(path, 'w') as f:
+        f.write(
+            "size;num_participants;culture_id;family_id;instance_type;color;marker;alpha;show;label;path;params\n"
+        )
+        print("Initialized empty experiment. Add families at " + path)
+        exit(0)
+    except FileExistsError:
+      print("Experiment already exists!")
 
-    def import_controllers(self):
-        """ Import controllers from a file """
+  def import_controllers(self):
+    """ Import controllers from a file """
 
-        families = {}
+    families = {}
 
-        path = os.path.join(os.getcwd(), 'experiments', self.experiment_id, 'map.csv')
-        with open(path, 'r') as file_:
+    path = os.path.join(os.getcwd(), 'experiments', self.experiment_id, 'map.csv')
+    if not os.path.exists(path):
+      print("File not found. Creating new experiment...")
+      self.create_structure()
+      exit(0)
+    with open(path, 'r') as file_:
 
-            header = [h.strip() for h in file_.readline().split(';')]
-            reader = csv.DictReader(file_, fieldnames=header, delimiter=';')
+      header = [h.strip() for h in file_.readline().split(';')]
+      reader = csv.DictReader(file_, fieldnames=header, delimiter=';')
 
-            # all_num_participants = []
+      # all_num_participants = []
 
-            starting_from = 0
-            for row in reader:
+      starting_from = 0
+      for row in reader:
 
-                size = 0
-                num_participants = 0
-                culture_id = 'none'
-                family_id = 'none'
-                instance_type = 'tournament'
-                color = 'black'
-                marker = 'o'
-                alpha = 1.
-                show = True
-                label = 'none'
-                params = dict()
+        size = 0
+        num_participants = 0
+        culture_id = 'none'
+        family_id = 'none'
+        instance_type = 'tournament'
+        color = 'black'
+        marker = 'o'
+        alpha = 1.
+        show = True
+        label = 'none'
+        params = dict()
 
-                # try:
-                #     if 'culture_id' in row.keys():
-                #         culture_id = str(row['culture_id']).strip()
-                # except:
-                #     if 'model_id' in row.keys():
-                #         culture_id = str(row['model_id']).strip()
-                #     if 'culture_id' in row.keys():
-                #         culture_id = str(row['culture_id']).strip()
-                if 'size' in row.keys():
-                    size = int(row['size'])
+        # try:
+        #     if 'culture_id' in row.keys():
+        #         culture_id = str(row['culture_id']).strip()
+        # except:
+        #     if 'model_id' in row.keys():
+        #         culture_id = str(row['model_id']).strip()
+        #     if 'culture_id' in row.keys():
+        #         culture_id = str(row['culture_id']).strip()
+        if 'size' in row.keys():
+          size = int(row['size'])
 
-                if 'num_participants' in row.keys():
-                    num_participants = int(row['num_participants'])
+        if 'num_participants' in row.keys():
+          num_participants = int(row['num_participants'])
 
-                if 'culture_id' in row.keys():
-                    culture_id = str(row['culture_id']).strip()
+        # Ordinal-compatibility
+        if 'num_candidates' in row.keys():
+          num_participants = int(row['num_candidates'])
 
-                if 'family_id' in row.keys():
-                    family_id = str(row['family_id'])
+        if 'culture_id' in row.keys():
+          culture_id = str(row['culture_id']).strip()
 
-                if 'instance_type' in row.keys():
-                    instance_type = str(row['instance_type']).strip()
+        if 'family_id' in row.keys():
+          family_id = str(row['family_id'])
 
-                if 'color' in row.keys():
-                    color = str(row['color']).strip()
+        if 'instance_type' in row.keys():
+          instance_type = str(row['instance_type']).strip()
 
-                if 'marker' in row.keys():
-                    marker = str(row['marker']).strip()
+        if 'color' in row.keys():
+          color = str(row['color']).strip()
 
-                if 'alpha' in row.keys():
-                    alpha = float(row['alpha'])
+        if 'marker' in row.keys():
+          marker = str(row['marker']).strip()
 
-                if 'show' in row.keys():
-                    show = row['show'].strip() == 'True'
+        if 'alpha' in row.keys():
+          alpha = float(row['alpha'])
 
-                if 'label' in row.keys():
-                    label = str(row['label'])
+        if 'show' in row.keys():
+          show = row['show'].strip() == 'True'
 
-                # if 'path' in row.keys():
-                #     path = ast.literal_eval(str(row['path']))
+        if 'label' in row.keys():
+          label = str(row['label'])
 
-                if 'params' in row.keys():
-                    params = ast.literal_eval(str(row['params']))
+        # if 'path' in row.keys():
+        #     path = ast.literal_eval(str(row['path']))
 
-                single = size == 1
+        if 'params' in row.keys():
+          params = ast.literal_eval(str(row['params']))
 
-                families[family_id] = TournamentFamily(
-                    experiment_id=self.experiment_id,
-                    culture_id=culture_id,
-                    family_id=family_id,
-                    params=params,
-                    label=label,
-                    color=color,
-                    alpha=alpha,
-                    show=show,
-                    size=size,
-                    marker=marker,
-                    starting_from=starting_from,
-                    num_participants=num_participants,
-                    # path=path,
-                    single=single,
-                    instance_type=instance_type)
-                starting_from += size
+        if 'num_voters' in row.keys():
+          params['num_voters'] = int(row['num_voters'])
 
-                # all_num_candidates.append(num_candidates)
-                # all_num_voters.append(num_voters)
+        single = size == 1 and 'compass' not in params
 
-            # check_if_all_equal(all_num_candidates, 'num_candidates')
-            # check_if_all_equal(all_num_voters, 'num_voters')
+        families[family_id] = TournamentFamily(
+            experiment_id=self.experiment_id,
+            culture_id=culture_id,
+            family_id=family_id,
+            params=params,
+            label=label,
+            color=color,
+            alpha=alpha,
+            show=show,
+            size=size,
+            marker=marker,
+            starting_from=starting_from,
+            num_participants=num_participants,
+            # path=path,
+            single=single,
+            instance_type=instance_type)
+        starting_from += size
 
-            self.num_families = len(families)
-            self.num_elections = sum([families[family_id].size for family_id in families])
-            self.main_order = [i for i in range(self.num_elections)]
+        # all_num_candidates.append(num_candidates)
+        # all_num_voters.append(num_voters)
 
-        return families
+      # check_if_all_equal(all_num_candidates, 'num_candidates')
+      # check_if_all_equal(all_num_voters, 'num_voters')
 
-    def add_instances_to_experiment(self):
-        instances = {}
+      self.num_families = len(families)
+      self.num_elections = sum([families[family_id].size for family_id in families])
+      self.main_order = [i for i in range(self.num_elections)]
 
-        for family_id in self.families:
-            for instance in self.families[family_id].prepare_family().values():
-                instances[instance.instance_id] = instance
-        return instances
+    return families
 
-    def add_family(self,
-                   culture_id: str = "none",
-                   params: dict = dict(),
-                   size: int = 1,
-                   label: str = 'none',
-                   color: str = "black",
-                   alpha: float = 1.,
-                   show: bool = True,
-                   marker: str = 'o',
-                   starting_from: int = 0,
-                   num_participants: int = 10,
-                   family_id: str | None = None,
-                   single: bool = False,
-                   path: dict = dict(),
-                   plot_path=None,
-                   instance_type='tournament',
-                   tournament_id: str | None = None):
-        if tournament_id is not None:
-            family_id = tournament_id
+  def add_instances_to_experiment(self):
+    instances = {}
 
-        if self.families is None:
-            self.families = {}
+    for family_id in self.families:
+      for instance in self.families[family_id].prepare_family().values():
+        instances[instance.instance_id] = instance
+    return instances
 
-        if family_id is None:
-            family_id = culture_id + '_' + str(num_participants)
-            if culture_id in {'urn_model'} and params and params['alpha'] is not None:
-                family_id += '_' + str(float(params['alpha']))
-            elif culture_id in {'mallows'} and params and params['phi'] is not None:
-                family_id += '_' + str(float(params['phi']))
-            elif culture_id in {'norm-mallows', 'norm-mallows_matrix'} \
-                    and params and params['norm-phi'] is not None:
-                family_id += '_' + str(float(params['norm-phi']))
+  def add_family(self,
+                 culture_id: str = "none",
+                 params: dict = dict(),
+                 size: int = 1,
+                 label: str = 'none',
+                 color: str = "black",
+                 alpha: float = 1.,
+                 show: bool = True,
+                 marker: str = 'o',
+                 starting_from: int = 0,
+                 num_participants: int = 10,
+                 family_id: str | None = None,
+                 single: bool = False,
+                 path: dict = dict(),
+                 plot_path=None,
+                 instance_type='tournament',
+                 tournament_id: str | None = None):
+    if tournament_id is not None:
+      family_id = tournament_id
 
-        if label == 'none':
-            label = family_id
+    if self.families is None:
+      self.families = {}
 
-        self.families[family_id] = TournamentFamily(culture_id=culture_id,
-                                                    family_id=family_id,
-                                                    params=params,
-                                                    label=label,
-                                                    color=color,
-                                                    alpha=alpha,
-                                                    show=show,
-                                                    size=size,
-                                                    marker=marker,
-                                                    starting_from=starting_from,
-                                                    num_participants=num_participants,
-                                                    path=path,
-                                                    single=single,
-                                                    instance_type=instance_type)
+    if family_id is None:
+      family_id = culture_id + '_' + str(num_participants)
+      if culture_id in {'urn_model'} and params and params['alpha'] is not None:
+        family_id += '_' + str(float(params['alpha']))
+      elif culture_id in {'mallows'} and params and params['phi'] is not None:
+        family_id += '_' + str(float(params['phi']))
+      elif culture_id in {'norm-mallows', 'norm-mallows_matrix'} \
+              and params and params['norm-phi'] is not None:
+        family_id += '_' + str(float(params['norm-phi']))
 
-        new_instances = self.families[family_id].prepare_family(plot_path=plot_path)
+    if label == 'none':
+      label = family_id
 
-        for instance_id in new_instances:
-            self.instances[instance_id] = new_instances[instance_id]
+    self.families[family_id] = TournamentFamily(culture_id=culture_id,
+                                                family_id=family_id,
+                                                params=params,
+                                                label=label,
+                                                color=color,
+                                                alpha=alpha,
+                                                show=show,
+                                                size=size,
+                                                marker=marker,
+                                                starting_from=starting_from,
+                                                num_participants=num_participants,
+                                                path=path,
+                                                single=single,
+                                                instance_type=instance_type)
 
-        self.families[family_id].instance_ids = list(new_instances.keys())
+    new_instances = self.families[family_id].prepare_family(plot_path=plot_path)
 
-        return list(new_instances.keys())
+    for instance_id in new_instances:
+      self.instances[instance_id] = new_instances[instance_id]
 
-    def _compute_distances(self, metric):
-        n = len(self.instances)
-        bar = Bar('Computing distances:', max=n * (n - 1) // 2)
-        bar.start()
-        for e, (i, t1) in enumerate(self.instances.items()):
-            for j, t2 in list(self.instances.items())[e + 1:]:
-                if i not in self.distances or j not in self.distances:
-                    self.distances.setdefault(i, dict())
-                    self.distances.setdefault(j, dict())
-                    self.distances[j][i] = self.distances[i][j] = metric(t1, t2)
-                bar.next()
+    self.families[family_id].instance_ids = list(new_instances.keys())
 
-    def _compute_distances_parallel(self, metric):
-        n = len(self.instances)
-        instance_ids = list(self.instances.keys())
-        tournaments = list(self.instances.values())
-        indices = list(zip(*triu_indices(n, 1)))
-        work = [(metric, tournaments[i], tournaments[j]) for i, j in indices
-                if instance_ids[i] not in self.distances or instance_ids[j] not in self.distances]
-        with Pool() as p:
-            distances = list(process_map(parallel_runner, work, total=len(work)))
-            # distances = p.starmap(metric, work)
-        for d, (i, j) in zip(distances, indices):
-            self.distances.setdefault(instance_ids[i], dict())
-            self.distances.setdefault(instance_ids[j], dict())
-            self.distances[instance_ids[j]][instance_ids[i]] = self.distances[instance_ids[i]][
-                instance_ids[j]] = d
+    return list(new_instances.keys())
 
-    def _store_distances_to_file(self, distance_id, distances, times, self_distances):
-        path_to_folder = os.path.join(os.getcwd(), "experiments", self.experiment_id, "distances")
-        make_folder_if_do_not_exist(path_to_folder)
-        path_to_file = os.path.join(path_to_folder, f'{distance_id}.csv')
+  def _compute_distances(self, metric):
+    n = len(self.instances)
+    instance_ids = list(self.instances.keys())
+    indices = list(zip(*triu_indices(n, 1)))
+    indices_to_compute = [
+        (i, j) for i,
+        j in indices
+        if instance_ids[i] not in self.distances or instance_ids[j] not in self.distances
+    ]
+    bar = Bar('Computing distances:', max=len(indices_to_compute))
+    bar.start()
+    for i, j in indices_to_compute:
+      self.distances.setdefault(instance_ids[i], dict())
+      self.distances.setdefault(instance_ids[j], dict())
+      self.distances[instance_ids[j]][instance_ids[i]] = self.distances[instance_ids[i]][
+          instance_ids[j]] = metric(self.instances[instance_ids[i]],
+                                    self.instances[instance_ids[j]])
+      bar.next()
 
-        with open(path_to_file, 'w', newline='') as csv_file:
-            writer = csv.writer(csv_file, delimiter=';')
-            writer.writerow(["instance_id_1", "instance_id_2", "distance", "time"])
+  def _compute_distances_parallel(self, metric):
+    n = len(self.instances)
+    instance_ids = list(self.instances.keys())
+    tournaments = list(self.instances.values())
+    indices = list(zip(*triu_indices(n, 1)))
+    indices_to_compute = [
+        (i, j) for i,
+        j in indices
+        if instance_ids[i] not in self.distances or instance_ids[j] not in self.distances
+    ]
+    # print(indices_to_compute)
+    work = [(metric, tournaments[i], tournaments[j]) for i, j in indices_to_compute]
+    with Pool() as p:
+      distances = list(
+          process_map(parallel_runner,
+                      work,
+                      total=len(work),
+                      chunksize=max(1, len(work) // (5000 * os.cpu_count()))))
+      # distances = p.starmap(metric, work)
+    for d, (i, j) in zip(distances, indices_to_compute):
+      self.distances.setdefault(instance_ids[i], dict())
+      self.distances.setdefault(instance_ids[j], dict())
+      self.distances[instance_ids[j]][instance_ids[i]] = self.distances[instance_ids[i]][
+          instance_ids[j]] = d
 
-            for i, election_1 in enumerate(self.distances.keys()):
-                for j, election_2 in enumerate(self.distances.keys()):
-                    if i < j or (i == j and self_distances):
-                        distance = str(distances[election_1][election_2])
-                        time_ = str(times[election_1][election_2]) if times else 0
-                        writer.writerow([election_1, election_2, distance, time_])
+  def _store_distances_to_file(self, distance_id, distances, times, self_distances):
+    print(os.getcwd())
+    print(self.experiment_id)
+    path_to_folder = os.path.join(os.getcwd(),
+                                  "experiments",
+                                  self.experiment_id,
+                                  "distances")
+    make_folder_if_do_not_exist(path_to_folder)
+    path_to_file = os.path.join(path_to_folder, f'{distance_id}.csv')
 
-    def compute_distances(self,
-                          metric: Distances = Distances.GED_OPT,
-                          parallel: bool = False,
-                          print_top=False,
-                          **kwargs):
-        if not self.distances:
-            self.distances = dict()
-        if metric:
-            self.distance_id = metric
-        if parallel:
-            self._compute_distances_parallel(get_similarity_measure(metric, **kwargs))
-        else:
-            self._compute_distances(get_similarity_measure(metric, **kwargs))
+    with open(path_to_file, 'w', newline='') as csv_file:
+      writer = csv.writer(csv_file, delimiter=';')
+      writer.writerow(["instance_id_1", "instance_id_2", "distance", "time"])
 
-        if print_top:
-            if isinstance(self.distances, dict):
-                print(json.dumps(self.distances, indent=4))
-            else:
-                print(self.distances)
-            all = []
-            for k, v in self.distances.items():
-                for k2, v2 in v.items():
-                    all.append((k, k2, v2))
-            top = sorted(all, key=lambda x: x[2], reverse=True)[:250]
-            print(''.join([str(x) + '\n' for x in top]))
-        self._store_distances_to_file(self.distance_id, self.distances, None, False)
+      for i, election_1 in enumerate(self.distances.keys()):
+        for j, election_2 in enumerate(self.distances.keys()):
+          if i < j or (i == j and self_distances):
+            distance = str(distances[election_1][election_2])
+            time_ = str(times[election_1][election_2]) if times else 0
+            writer.writerow([election_1, election_2, distance, time_])
 
-    def save_tournament_plots(self, path: str = 'graphs'):
-        if not os.path.exists(path):
-            os.makedirs(path)
-        for k, v in self.instances.items():
-            v.save_graph_plot(os.path.join(path, str(k)))
+  def compute_distances(self,
+                        metric: Distances = Distances.GED_OPT,
+                        parallel: bool = False,
+                        clean: bool = False,
+                        print_top=False,
+                        **kwargs):
+    if not self.distances or clean:
+      print(f"Generating {metric} from scratch...")
+      self.distances = dict()
+    if metric:
+      self.distance_id = metric
+    if parallel:
+      self._compute_distances_parallel(get_similarity_measure(metric, **kwargs))
+    else:
+      self._compute_distances(get_similarity_measure(metric, **kwargs))
+
+    if print_top:
+      if isinstance(self.distances, dict):
+        print(json.dumps(self.distances, indent=4))
+      else:
+        print(self.distances)
+      all = []
+      for k, v in self.distances.items():
+        for k2, v2 in v.items():
+          all.append((k, k2, v2))
+      top = sorted(all, key=lambda x: x[2], reverse=True)[:250]
+      print(''.join([str(x) + '\n' for x in top]))
+    self._store_distances_to_file(self.distance_id, self.distances, None, False)
+
+  def save_tournament_plots(self, path: str = 'graphs'):
+    if not os.path.exists(path):
+      os.makedirs(path)
+    for k, v in self.instances.items():
+      v.save_graph_plot(os.path.join(path, str(k)))
+
+  def compute_feature(self,
+                      feature_id,
+                      feature_fun,
+                      feature_long_id=None,
+                      saveas=None,
+                      clean=False,
+                      **kwargs):
+    """ Compute a feature for all instances in the experiment """
+    feature_long_id = feature_id if feature_long_id is None else feature_long_id
+
+    folder_path = os.path.join(os.getcwd(), "experiments", self.experiment_id, "features")
+    make_folder_if_do_not_exist(folder_path)
+    saveas = feature_long_id if saveas is None else saveas
+    # filepath = os.path.join(folder_path, f'{saveas}.csv')
+    # if os.path.exists(filepath) and not clean:
+    #   print(f"Feature {feature_id} already exists. Not calculating...")
+    #   return
+
+    feature_dict = {
+        'value': {}, 'time': {}
+    }
+    for instance_id in tqdm(self.instances, desc=f'Computing feature: {feature_id}'):
+      instance = self.instances[instance_id]
+      start = time.time()
+      feature_dict['value'][instance_id] = feature_fun(instance, **kwargs)
+      feature_dict['time'][instance_id] = time.time() - start
+
+    if self.is_exported:
+      exports.export_feature_to_file(self, feature_id, saveas, feature_dict)
+
+    self.features[saveas] = feature_dict
+    return feature_dict

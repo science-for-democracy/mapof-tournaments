@@ -29,51 +29,18 @@ def print_wrap(*args, **kwargs):
                    **kwargs)
 
 
-builtins.print = print_wrap
+# builtins.print = print_wrap
 
 # read n from args
-n = int(os.sys.argv[1])
-ex = mt.TournamentExperiment(experiment_id=f'full-non-isomorphic-{n}', distance_id=Distances.GED_BLP)
-print(len(ex.distances))
-
-ex.add_family(
-    culture_id='Ordered',
-    color='red',
-    family_id='Ordered',
-    label='Ordered',
-    single=True,
-    num_participants=n,
-    # plot_path='graphs',
-    params={'compass': 'ordered'})
-ex.add_family(
-    culture_id='Rock-Paper-Scissors',
-    color='purple',
-    family_id='Rock-Paper-Scissors',
-    label='Rock-Paper-Scissors',
-    single=True,
-    num_participants=n,
-    # plot_path='graphs',
-    params={'compass': 'rock-paper-scissors'})
-ex.add_family(
-    culture_id='Mixed',
-    color='orange',
-    family_id='Mixed',
-    label='Mixed',
-    single=True,
-    num_participants=n,
-    # plot_path='graphs',
-    params={'compass': 'mixed'})
-ex.add_family(
-    culture_id='Test',
-    color='blue',
-    family_id='Test',
-    label='Test',
-    single=True,
-    num_participants=n,
-    # plot_path='graphs',
-    params={'compass': 'test'})
-# ex.save_tournament_plots(path=f"graphs/{n}")
-ex.distances, _, _, _ = imports.add_distances_to_experiment(ex)
-ex.compute_distances(Distances.GED_BLP, parallel=True)
-ex.embed(embedding_id='mds')
-ex.print_map()
+for n in [8]:
+    # for distance_id in [Distances.SP, Distances.SPH]:
+    for distance_id in [Distances.SPHR]:
+        ex = mt.TournamentExperiment(experiment_id=f'full-non-isomorphic-{n}', distance_id=distance_id)
+        # ex.save_tournament_plots(path=f"graphs/{n}")
+        # ex.distances, _, _, _ = imports.add_distances_to_experiment(ex)
+        ex.compute_distances(distance_id, parallel=True, clean=False)
+        embedding_id = 'mds'
+        ex.embed_2d(embedding_id=embedding_id)
+        ex.print_map(show=True,
+                     saveas=f"{ex.experiment_id}-{distance_id}-{embedding_id}.png",
+                     title=f"Distance: {distance_id}, Embedding: {embedding_id}")
