@@ -2,35 +2,33 @@ import ast
 import csv
 import itertools
 import json
-import pickle
 import os
+import pickle
 from collections import defaultdict
 from enum import Enum
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
 from random import uniform
-from mapel.tournaments.objects.TournamentCultures import ordered, rock_paper_scissors
 
 import matplotlib.pyplot as plt
-from networkx.classes.digraph import DiGraph
-import numpy as np
 import networkx as nx
-import pandas_access as mdb
+import numpy as np
 import pandas as pd
-from matplotlib.font_manager import json_dump
-from numpy.lib.twodim_base import triu_indices
-from progress.bar import Bar
-from tqdm.contrib.concurrent import process_map
-
+import pandas_access as mdb
 from mapel.core.objects.Experiment import Experiment
 from mapel.core.objects.Family import Family
 from mapel.core.objects.Instance import Instance
 from mapel.core.utils import make_folder_if_do_not_exist
 from mapel.elections.objects.ElectionFamily import ElectionFamily
-from mapel.tournaments.objects.GraphSimilarity import (Distances,
-                                                       get_similarity_measure,
-                                                       parallel_runner,
-                                                       ged_blp)
+from mapel.tournaments.objects.TournamentCultures import (ordered,
+                                                          rock_paper_scissors)
+from mapel.tournaments.objects.TournamentSimilarity import (ged_blp,
+                                                            parallel_runner)
+from matplotlib.font_manager import json_dump
+from networkx.classes.digraph import DiGraph
+from numpy.lib.twodim_base import triu_indices
+from progress.bar import Bar
+from tqdm.contrib.concurrent import process_map
 
 
 class TournamentInstance(Instance):

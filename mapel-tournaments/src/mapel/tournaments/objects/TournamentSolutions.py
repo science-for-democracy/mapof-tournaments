@@ -1,7 +1,7 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 
-from mapel.tournaments.objects.GraphSimilarity import ged_blp, ged_blp_faster
+from mapel.tournaments.objects.TournamentSimilarity import ged_blp, ged_blp_faster
 from mapel.tournaments.objects.TournamentCultures import ordered
 from mapel.tournaments.objects.TournamentInstance import TournamentInstance
 

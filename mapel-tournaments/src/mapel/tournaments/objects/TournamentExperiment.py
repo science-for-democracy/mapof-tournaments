@@ -11,27 +11,25 @@ from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
 from random import uniform
 
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas_access as mdb
-import networkx as nx
-import pandas as pd
-from tqdm import tqdm
-from matplotlib.font_manager import json_dump
-from numpy.lib.twodim_base import triu_indices
-from progress.bar import Bar
-from tqdm.contrib.concurrent import process_map
-
 import mapel.core.persistence.experiment_exports as exports
+import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
+import pandas as pd
+import pandas_access as mdb
 from mapel.core.objects.Experiment import Experiment
 from mapel.core.objects.Family import Family
 from mapel.core.objects.Instance import Instance
 from mapel.core.utils import make_folder_if_do_not_exist
 from mapel.elections.objects.ElectionFamily import ElectionFamily
-from mapel.tournaments.objects.GraphSimilarity import (Distances,
-                                                       get_similarity_measure,
-                                                       parallel_runner)
 from mapel.tournaments.objects.TournamentFamily import TournamentFamily
+from mapel.tournaments.objects.TournamentSimilarity import (get_distance,
+                                                            parallel_runner)
+from matplotlib.font_manager import json_dump
+from numpy.lib.twodim_base import triu_indices
+from progress.bar import Bar
+from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
 
 
 class TournamentExperiment(Experiment):
@@ -40,7 +38,7 @@ class TournamentExperiment(Experiment):
                instances=None,
                distances=None,
                coordinates=None,
-               distance_id=Distances.GED_BLP,
+               distance_id="ged_blp",
                experiment_id=None,
                coordinates_names=None,
                embedding_id='mds',
@@ -168,7 +166,7 @@ class TournamentExperiment(Experiment):
           label = str(row['label'])
 
         # if 'path' in row.keys():
-        #     path = ast.literal_eval(str(row['path']))
+        #     path = row['path'].strip()
 
         if 'params' in row.keys():
           params = ast.literal_eval(str(row['params']))
@@ -342,20 +340,19 @@ class TournamentExperiment(Experiment):
             writer.writerow([election_1, election_2, distance, time_])
 
   def compute_distances(self,
-                        metric: Distances = Distances.GED_OPT,
+                        metric: str = "ged_blp",
                         parallel: bool = False,
                         clean: bool = False,
-                        print_top=False,
-                        **kwargs):
+                        print_top=False):
     if not self.distances or clean:
       print(f"Generating {metric} from scratch...")
       self.distances = dict()
     if metric:
       self.distance_id = metric
     if parallel:
-      self._compute_distances_parallel(get_similarity_measure(metric, **kwargs))
+      self._compute_distances_parallel(get_distance(metric))
     else:
-      self._compute_distances(get_similarity_measure(metric, **kwargs))
+      self._compute_distances(get_distance(metric))
 
     if print_top:
       if isinstance(self.distances, dict):

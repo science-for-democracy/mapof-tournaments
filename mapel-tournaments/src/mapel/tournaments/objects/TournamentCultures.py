@@ -1,3 +1,8 @@
+"""This module contains functions to generate tournaments from different cultures.
+
+>>> print(list(registered_cultures.keys()), sep="\\n")
+['ordered', 'rock-paper-scissor', 'uniform', 'condorset_noise', 'mallows', 'urn', 'diffused', 'nauty']
+"""
 import itertools
 import subprocess
 from random import uniform
@@ -5,17 +10,56 @@ from random import uniform
 import networkx as nx
 import numpy as np
 
+registered_cultures = {}
+aliases = {}
+
+
+def get(culture_id: str):
+  """Return the culture function for the given culture id."""
+  culture_id = culture_id.lower()
+  if culture_id in aliases:
+    return registered_cultures[aliases[culture_id]]
+  else:
+    raise ValueError(f"No such culture id: {culture_id}")
+
+
+def exists(culture_id: str):
+  """Return true if the culture exists."""
+  culture_id = culture_id.lower()
+  return culture_id in aliases
+
+
+def register(name: str | list[str]):
+
+  def decorator(func):
+    if isinstance(name, str):
+      names = [name]
+    else:
+      names = name
+    if isinstance(names, list):
+      map(lambda n: n.lower(), names)
+      registered_cultures[names[0]] = func
+      for n in names:
+        aliases[n] = names[0]
+    else:
+      raise ValueError("name must be a string or a list of strings")
+    return func
+
+  return decorator
+
 
 ## Compass tournaments
-def ordered(num_participants):
+@register(["ordered", "condorcet"])
+def ordered(num_participants, _count, _params):
   adjacency_matrix = np.zeros((num_participants, num_participants))
   for i in range(num_participants):
     for j in range(i + 1, num_participants):
       adjacency_matrix[i, j] = 1
-  return nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+  return [nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)]
 
 
-def rock_paper_scissors(num_participants):
+@register(["rock-paper-scissors", "rps", "chaos"])
+def rock_paper_scissors(num_participants, _count, _params):
   adjacency_matrix = np.zeros((num_participants, num_participants))
   for jump_length in range(1, num_participants // 2 + 1):
     # For the last iteration with even number of participants, we only set half of the edges.
@@ -23,11 +67,12 @@ def rock_paper_scissors(num_participants):
                    2 else num_participants // 2):
       j = (i + jump_length) % num_participants
       adjacency_matrix[i, j] = 1
-  return nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+  return [nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)]
 
 
 ### Statistical
-def uniform_random(num_participants, count):
+@register(["uniform", "random"])
+def uniform_random(num_participants, count, _params):
   """Choose each edge direction with probability 0.5"""
   tournaments = []
   for i in range(count):
@@ -42,14 +87,23 @@ def uniform_random(num_participants, count):
   return tournaments
 
 
-def condorcet_noise(num_participants, count, p):
+@register("condorset_noise")
+def condorcet_noise(num_participants, count, params):
   """Start with an initial ordered tournament and invert each edge with probability p"""
+  if 'p' not in params:
+    raise ValueError(
+        "p must be specified for the 'condorcet_noise' culture inside 'params'")
+  p = params['p']
+  if isinstance(p, float):
+    p = [p]
+  elif not isinstance(p, list):
+    raise ValueError("p must be a float or a list of floats")
   tournaments = []
-  for i in range(count):
+  for c in range(count):
     adjacency_matrix = np.zeros((num_participants, num_participants))
     for i in range(num_participants):
       for j in range(i + 1, num_participants):
-        if np.random.rand() < p:
+        if np.random.rand() < p[c]:
           adjacency_matrix[j, i] = 1
         else:
           adjacency_matrix[i, j] = 1
@@ -61,37 +115,50 @@ def condorcet_noise(num_participants, count, p):
 import mapel.elections.objects.OrdinalElection as oe
 
 
-def _from_ordinal_election(election):
-  """Create a tournament from an ordinal election."""
-  n = election.num_candidates
-  election.prepare_instance()
-  adjacency_matrix = np.zeros((n, n))
-  pairwise_matrix = election.votes_to_pairwise_matrix()
-  for i in range(n):
-    for j in range(i + 1, n):
-      if pairwise_matrix[i, j] > pairwise_matrix[j, i]:
-        adjacency_matrix[i, j] = 1
-      else:
-        adjacency_matrix[j, i] = 1
-  return nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-
-
-def ordinal_election_culture(culture_id, num_participants, count, params):
+def from_ordinal_election(culture_id, num_participants, count, params):
   """Create tournaments from a registered ordinal election culture."""
+
+  def single(election):
+    """Create a tournament from an ordinal election."""
+    n = election.num_candidates
+    election.prepare_instance()
+    adjacency_matrix = np.zeros((n, n))
+    pairwise_matrix = election.votes_to_pairwise_matrix()
+    for i in range(n):
+      for j in range(i + 1, n):
+        if pairwise_matrix[i, j] > pairwise_matrix[j, i]:
+          adjacency_matrix[i, j] = 1
+        else:
+          adjacency_matrix[j, i] = 1
+    return nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+
   if 'num_voters' not in params:
     raise ValueError(
         "num_voters must be specified for the 'ordinal_election' culture inside 'params'")
+  num_voters = params['num_voters']
+  params.pop('num_voters')
   tournaments = []
   for i in range(count):
     election = oe.OrdinalElection(culture_id=culture_id,
-                                  num_voters=params['num_voters'],
+                                  num_voters=num_voters,
                                   num_candidates=num_participants,
                                   params=params)
-    tournaments.append(_from_ordinal_election(election))
+    tournaments.append(single(election))
   return tournaments
 
 
+@register("mallows")
+def mallows_ordinal(num_participants, count, params):
+  return from_ordinal_election('mallows', num_participants, count, params)
+
+
+@register("urn")
+def urn_ordinal(num_participants, count, params):
+  return from_ordinal_election('urn', num_participants, count, params)
+
+
 ### Special
+@register("diffused")
 def diffused(tournament, count, alpha=None, ev=None):
   """Create a family of tournaments by randomly inverting edges. The
   probability of inverting an edge is alpha. If ev is specified, alpha is
@@ -134,6 +201,7 @@ tournament_count_lookup = {
 }
 
 
+@register("nauty")
 def nauty(n, size, params):
   """Generate size random tournaments with n participants using nauty."""
   args = ["nauty-gentourng", str(n)]
@@ -291,5 +359,6 @@ def urn(n, m, replace):
     print("There has been a mistake, this is not a tournament!")
 
 
-if __name__ == '__main__':
-  print(impartial_culture(10, 5))
+if __name__ == "__main__":
+  import doctest
+  doctest.testmod()

@@ -2,36 +2,40 @@ import ast
 import csv
 import itertools
 import json
-import pickle
 import os
+import pickle
 import subprocess
 from collections import defaultdict
-from enum import Enum
+from enum import Enum, StrEnum
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
 from random import uniform
 
+import mapel.tournaments.objects.TournamentCultures as cultures
 import matplotlib.pyplot as plt
-import numpy as np
 import networkx as nx
-import pandas_access as mdb
+import numpy as np
 import pandas as pd
-from matplotlib.font_manager import json_dump
-from numpy.lib.twodim_base import triu_indices
-from progress.bar import Bar
-from tqdm.contrib.concurrent import process_map
-
+import pandas_access as mdb
 from mapel.core.objects.Experiment import Experiment
 from mapel.core.objects.Family import Family
 from mapel.core.objects.Instance import Instance
 from mapel.core.utils import make_folder_if_do_not_exist
 from mapel.elections.objects.ElectionFamily import ElectionFamily
-from mapel.tournaments.objects.GraphSimilarity import (Distances,
-                                                       get_similarity_measure,
-                                                       parallel_runner,
-                                                       ged_blp)
-from mapel.tournaments.objects.TournamentInstance import TournamentInstance
 from mapel.tournaments.objects.TournamentCultures import nauty
+from mapel.tournaments.objects.TournamentInstance import TournamentInstance
+from mapel.tournaments.objects.TournamentSimilarity import (ged_blp,
+                                                            parallel_runner)
+from matplotlib.font_manager import json_dump
+from numpy.lib.twodim_base import triu_indices
+from progress.bar import Bar
+from tqdm.contrib.concurrent import process_map
+
+
+class InstanceType(StrEnum):
+  TOURNAMENT = 'tournament'
+  SPECIAL = 'special'
+  JSON = 'json'
 
 
 class TournamentFamily(Family):
@@ -52,7 +56,7 @@ class TournamentFamily(Family):
                single: bool = False,
                num_participants=10,
                tournament_ids=None,
-               instance_type: str = 'tournament',
+               instance_type: InstanceType = InstanceType.TOURNAMENT,
                experiment_id: str = 'none') -> None:
 
     super().__init__(culture_id=culture_id,
@@ -135,88 +139,23 @@ class TournamentFamily(Family):
     return g_inv
 
   def prepare_tournament_family(self):
-    if self.single:
-      if 'adjacency_matrix' in self.params:
-        adjacency_matrix = self.params['adjacency_matrix']
-        tournaments = {
-            self.family_id:
-            TournamentInstance(adjacency_matrix,
-                               self.experiment_id,
-                               self.family_id,
-                               self.culture_id)
-        }
-      elif self.culture_id.startswith('bridge-'):
-        if "db" not in self.params:
-          raise ValueError('db must be specified for bridge culture.')
-        path = os.path.join(os.getcwd(),
-                            "experiments",
-                            self.experiment_id,
-                            "dbs",
-                            f'{self.params["db"]}')
-        if not os.path.exists(path):
-          print(path)
-          raise ValueError(f'Database {self.params["db"]} not found.')
-        df = mdb.read_table(path, 'Matchdresults', converters_from_schema=False)
-        tournaments = {
-            self.family_id:
-            TournamentInstance.from_bridge_df(df,
-                                              self.experiment_id,
-                                              self.family_id,
-                                              self.culture_id)
-        }
-      else:
-        raise ValueError('Adjacency_matrix must be specified for a single tournament.')
-    if 'compass' in self.params:
+    if cultures.exists(self.culture_id):
       tournaments = {
-          tournament.instance_id: tournament
-          for tournament in TournamentInstance.from_compass(self.num_participants,
-                                                            self.params['compass'],
-                                                            self.experiment_id,
-                                                            self.family_id,
-                                                            self.culture_id)
+          self.family_id + f"_{i}": TournamentInstance(tournament,
+                                                       self.experiment_id,
+                                                       self.family_id + f"_{i}",
+                                                       self.culture_id)
+          for i,
+          tournament in enumerate(
+              cultures.get(self.culture_id)(self.num_participants, self.size,
+                                            self.params))
       }
-    elif self.culture_id.startswith('json'):
-      if "path" not in self.params:
-        raise ValueError('path must be specified for json culture.')
-      path = os.path.join(os.getcwd(),
-                          "experiments",
-                          self.experiment_id,
-                          "jsons",
-                          f'{self.params["path"]}')
-      if not os.path.exists(path):
-        print(path)
-        raise ValueError(f'Json {self.params["path"]} not found.')
-      with open(path) as f:
-        tournaments = {
-            self.family_id:
-            TournamentInstance.from_dict_of_lists(json.load(f),
-                                                  self.experiment_id,
-                                                  self.family_id,
-                                                  self.culture_id)
-        }
-    elif self.culture_id.startswith('nba-'):
-      if "dir" not in self.params:
-        raise ValueError('dir must be specified for NBA culture.')
-      path = os.path.join(os.getcwd(),
-                          "experiments",
-                          self.experiment_id,
-                          f'{self.params["dir"]}')
-      tournaments = {}
-      files = os.listdir(path) if not path.endswith('.csv') else [path]
-      for csv in files:
-        if csv.endswith('.csv'):
-          df = pd.read_csv(os.path.join(path, csv))
-          instance_id = csv.split('_')[0]
-          instance = TournamentInstance.from_nba_df(df,
-                                                    self.params,
-                                                    self.experiment_id,
-                                                    instance_id,
-                                                    self.culture_id)
-          # if len(instance.graph.nodes()) == 30:
-          tournaments[instance_id] = instance
-          # else:
-          #   print(instance_id, len(instance.graph.nodes()))
-    elif self.culture_id.startswith('all-non-isomorphic'):
+      return tournaments
+    else:
+      raise ValueError(f'Culture {self.culture_id} not supported.')
+
+  def prepare_special_family(self):
+    if self.culture_id.startswith('all-non-isomorphic'):
       n = int(self.culture_id.split('-')[-1])
       tournaments = {}
       for i, g in enumerate(self.get_all_non_isomorphic_graphs(n)):
@@ -302,42 +241,131 @@ class TournamentFamily(Family):
     self.instance_ids = list(tournaments.keys())
     return tournaments
 
-  def prepare_from_ordinal_election_family(self):
-    if 'num_voters' in self.params:
-      num_voters = self.params['num_voters']
-      self.params.pop('num_voters')
+  # def prepare_tournament_family(self):
+  # if self.single:
+  # if 'adjacency_matrix' in self.params:
+  #   adjacency_matrix = self.params['adjacency_matrix']
+  #   tournaments = {
+  #       self.family_id:
+  #       TournamentInstance(adjacency_matrix,
+  #                          self.experiment_id,
+  #                          self.family_id,
+  #                          self.culture_id)
+  #   }
+  # elif self.culture_id.startswith('bridge-'):
+  #   if "db" not in self.params:
+  #     raise ValueError('db must be specified for bridge culture.')
+  #   path = os.path.join(os.getcwd(),
+  #                       "experiments",
+  #                       self.experiment_id,
+  #                       "dbs",
+  #                       f'{self.params["db"]}')
+  #   if not os.path.exists(path):
+  #     print(path)
+  #     raise ValueError(f'Database {self.params["db"]} not found.')
+  #   df = mdb.read_table(path, 'Matchdresults', converters_from_schema=False)
+  #   tournaments = {
+  #       self.family_id:
+  #       TournamentInstance.from_bridge_df(df,
+  #                                         self.experiment_id,
+  #                                         self.family_id,
+  #                                         self.culture_id)
+  #   }
+  # else:
+  #   raise ValueError('Adjacency_matrix must be specified for a single tournament.')
+  # if 'compass' in self.params:
+  #   tournaments = {
+  #       tournament.instance_id: tournament
+  #       for tournament in TournamentInstance.from_compass(self.num_participants,
+  #                                                         self.params['compass'],
+  #                                                         self.experiment_id,
+  #                                                         self.family_id,
+  #                                                         self.culture_id)
+  #   }
+  # elif self.culture_id.startswith('nba-'):
+  #   if "dir" not in self.params:
+  #     raise ValueError('dir must be specified for NBA culture.')
+  #   path = os.path.join(os.getcwd(),
+  #                       "experiments",
+  #                       self.experiment_id,
+  #                       f'{self.params["dir"]}')
+  #   tournaments = {}
+  #   files = os.listdir(path) if not path.endswith('.csv') else [path]
+  #   for csv in files:
+  #     if csv.endswith('.csv'):
+  #       df = pd.read_csv(os.path.join(path, csv))
+  #       instance_id = csv.split('_')[0]
+  #       instance = TournamentInstance.from_nba_df(df,
+  #                                                 self.params,
+  #                                                 self.experiment_id,
+  #                                                 instance_id,
+  #                                                 self.culture_id)
+  #       # if len(instance.graph.nodes()) == 30:
+  #       tournaments[instance_id] = instance
+  #       # else:
+  #       #   print(instance_id, len(instance.graph.nodes()))
+
+  def prepare_from_json_family(self):
+    path = os.path.join(os.getcwd(),
+                        "experiments",
+                        self.experiment_id,
+                        "jsons",
+                        self.culture_id)
+    if self.single:
+      filenames = [self.culture_id + '.json']
     else:
-      raise ValueError('num_voters must be specified for ordinal election family.')
-    election_family = ElectionFamily(culture_id=self.culture_id,
-                                     family_id=self.family_id,
-                                     params=self.params,
-                                     label=self.label,
-                                     color=self.color,
-                                     alpha=self.alpha,
-                                     show=self.show,
-                                     size=self.size,
-                                     marker=self.marker,
-                                     starting_from=self.starting_from,
-                                     num_candidates=self.num_participants,
-                                     num_voters=num_voters,
-                                     path=self.path,
-                                     single=self.single,
-                                     instance_type=self.instance_type)
-    elections = election_family.prepare_family(self.experiment_id)
+      filenames = [os.path.join(path, f) for f in os.listdir(path)]
     tournaments = {}
-    for k, v in elections.items():
-      tournaments[k] = TournamentInstance.from_election(v)
-    self.instance_ids = list(tournaments.keys())
-    print(self.instance_ids, "instance_ids")
-    return tournaments
+    for filename in filenames:
+      if not os.path.exists(path):
+        print(path)
+        raise ValueError(f'Json {filename} not found.')
+      if filename[:-5] != ".json":
+        continue
+      else:
+        instance_id = os.path.basename(filename)[:-5]
+      with open(path) as f:
+        tournaments[self.family_id] = TournamentInstance.from_dict_of_lists(
+            json.load(f), self.experiment_id, self.family_id, self.culture_id)
+
+  # def prepare_from_ordinal_election_family(self):
+  #   if 'num_voters' in self.params:
+  #     num_voters = self.params['num_voters']
+  #     self.params.pop('num_voters')
+  #   else:
+  #     raise ValueError('num_voters must be specified for ordinal election family.')
+  #   election_family = ElectionFamily(culture_id=self.culture_id,
+  #                                    family_id=self.family_id,
+  #                                    params=self.params,
+  #                                    label=self.label,
+  #                                    color=self.color,
+  #                                    alpha=self.alpha,
+  #                                    show=self.show,
+  #                                    size=self.size,
+  #                                    marker=self.marker,
+  #                                    starting_from=self.starting_from,
+  #                                    num_candidates=self.num_participants,
+  #                                    num_voters=num_voters,
+  #                                    path=self.path,
+  #                                    single=self.single,
+  #                                    instance_type=self.instance_type)
+  #   elections = election_family.prepare_family(self.experiment_id)
+  #   tournaments = {}
+  #   for k, v in elections.items():
+  #     tournaments[k] = TournamentInstance.from_election(v)
+  #   self.instance_ids = list(tournaments.keys())
+  #   return tournaments
 
   def prepare_family(self, plot_path=None):
-    if self.instance_type == 'tournament':
+    if self.instance_type == InstanceType.TOURNAMENT:
       tournaments = self.prepare_tournament_family()
-    elif self.instance_type == 'ordinal':
-      tournaments = self.prepare_from_ordinal_election_family()
+    elif self.instance_type == InstanceType.JSON:
+      tournaments = self.prepare_from_json_family()
+    elif self.instance_type == InstanceType.SPECIAL:
+      tournaments = self.prepare_special_family()
     else:
       raise ValueError(f'Instance type {self.instance_type} not supported.')
+    self.instance_ids = list(tournaments.keys())
     if plot_path is not None:
       if not os.path.exists(plot_path):
         os.makedirs(plot_path)
