@@ -1,22 +1,15 @@
-import marshal
-import pickle
-import types
-from copy import deepcopy
-from enum import Enum, StrEnum
-from functools import partial
-
 import gurobipy as gp
 import networkx as nx
 import numpy as np
-import tqdm
-from mapel.core.inner_distances import emd, emd2, l1
+from mapel.core.inner_distances import emd, l1
 from mapel.core.matchings import solve_matching_vectors
-from numpy.ma.core import sqrt
-from scipy import stats
-from scipy.stats import wasserstein_distance
 
 registered_distances = {}
 aliases = {}
+
+
+def list_distances():
+  return registered_distances.keys()
 
 
 def get_distance(distance_id: str):
@@ -169,6 +162,15 @@ def eigen_centrality(u, v, inner_distance=l1):
   return centrality_helper(nx.eigenvector_centrality_numpy, u, v, inner_distance)
 
 
+@register("katz_cen_test")
+def katz_centrality_test(u, v, alpha, inner_distance=l1):
+  u_centrality = np.array(
+      list(sorted(nx.katz_centrality_numpy(u.graph, alpha=alpha).values())))
+  v_centrality = np.array(
+      list(sorted(nx.katz_centrality_numpy(v.graph, alpha=alpha).values())))
+  return inner_distance(u_centrality, v_centrality)
+
+
 @register("katz_cen")
 def katz_centrality(u, v, inner_distance=l1):
   return centrality_helper(nx.katz_centrality_numpy, u, v, inner_distance)
@@ -228,7 +230,30 @@ def ged_blp_wrapper(u, v):
   return round(ged_blp(u.graph, v.graph)[0])
 
 
-def ged_blp(u, v):
+def initial_ged_heuristic(u, v, x):
+  u_deg = sorted(u.out_degree(), key=lambda x: x[1])
+  v_deg = sorted(v.out_degree(), key=lambda x: x[1])
+  l = list(zip(u_deg, v_deg))
+  n = len(l)
+  for i, j in l[:n // 4] + l[-n // 4:]:
+    i, j = i[0], j[0]
+    x[i, j].Start = 1
+    for k in range(len(u.nodes())):
+      if k != i:
+        x[k, j].Start = 0
+      if k != j:
+        x[i, k].Start = 0
+  return
+
+
+class GurobiException(Exception):
+
+  def __init__(self, message, code):
+    super().__init__(message)
+    self.code = code
+
+
+def ged_blp(u, v, additional_constraints_func=None):
   """Compute the graph edit distance between two graphs using a binary linear program. """
   env = gp.Env(empty=True)
   env.setParam('OutputFlag', 0)
@@ -240,6 +265,7 @@ def ged_blp(u, v):
 
   n = len(u.nodes())
   m = gp.Model('ged_blp', env=env)
+  m.setParam(gp.GRB.Param.Threads, 1)
 
   # Vertex matching variables
   x = np.ndarray(shape=(n, n), dtype=object)
@@ -247,17 +273,28 @@ def ged_blp(u, v):
     for j in range(n):
       x[i, j] = m.addVar(vtype=gp.GRB.BINARY, name='x_{},{}'.format(i, j))
 
-  m.setObjective(
-      gp.quicksum(x[i, l] * x[j, k] for i, j in u.edges() for k, l in v.edges()),
-      gp.GRB.MINIMIZE)
+  # Heuristic
+  # initial_ged_heuristic(u, v, x)
+
+  # Objective
+  obj = gp.quicksum(x[i, l] * x[j, k] for i, j in u.edges() for k, l in v.edges())
+  m.setObjective(obj, gp.GRB.MINIMIZE)
+  m.addConstr(obj <= n * (n - 1) // 4)
+  m.addConstr(obj >= 0)
 
   # Vertex matching constraints
   for i in range(n):
     m.addConstr(gp.quicksum(x[i, j] for j in range(n)) == 1)
     m.addConstr(gp.quicksum(x[j, i] for j in range(n)) == 1)
 
+  if additional_constraints_func is not None:
+    additional_constraints_func(m, x, u, v)
+
   # Solve
   m.optimize()
+
+  if m.Status != gp.GRB.OPTIMAL:
+    raise GurobiException(f"Optimization failed... Status: {m.Status}", m.Status)
 
   # Get matching
   matching = []
@@ -344,7 +381,6 @@ def ged_blp_old(u, v):
 
 if __name__ == '__main__':
   # Test ged_blp
-  from mapel.tournaments.objects.TournamentInstance import TournamentInstance
   t1 = nx.from_numpy_array(np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]]),
                            create_using=nx.DiGraph)
   t2 = nx.from_numpy_array(np.array([[0, 1, 1], [0, 0, 1], [0, 0, 0]]),

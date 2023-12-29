@@ -34,6 +34,7 @@ from tqdm.contrib.concurrent import process_map
 
 class InstanceType(StrEnum):
   TOURNAMENT = 'tournament'
+  ORDINAL = 'ordinal'
   SPECIAL = 'special'
   JSON = 'json'
 
@@ -138,21 +139,31 @@ class TournamentFamily(Family):
       g_inv.add_edge(v, u)
     return g_inv
 
+  def _prepare_instances_from_graphs(self, graphs):
+    tournaments = {}
+    for i, g in enumerate(graphs):
+      instance_id = f'{self.family_id}_{i}'
+      tournaments[instance_id] = TournamentInstance(g,
+                                                    self.experiment_id,
+                                                    instance_id,
+                                                    self.culture_id)
+    return tournaments
+
   def prepare_tournament_family(self):
     if cultures.exists(self.culture_id):
-      tournaments = {
-          self.family_id + f"_{i}": TournamentInstance(tournament,
-                                                       self.experiment_id,
-                                                       self.family_id + f"_{i}",
-                                                       self.culture_id)
-          for i,
-          tournament in enumerate(
-              cultures.get(self.culture_id)(self.num_participants, self.size,
-                                            self.params))
-      }
-      return tournaments
+      graphs = cultures.get(self.culture_id)(self.num_participants,
+                                             self.size,
+                                             self.params)
+      return self._prepare_instances_from_graphs(graphs)
     else:
       raise ValueError(f'Culture {self.culture_id} not supported.')
+
+  def prepare_from_ordinal_election_family(self):
+    graphs = cultures.from_ordinal_election(self.culture_id,
+                                            self.num_participants,
+                                            self.size,
+                                            self.params)
+    return self._prepare_instances_from_graphs(graphs)
 
   def prepare_special_family(self):
     if self.culture_id.startswith('all-non-isomorphic'):
@@ -238,72 +249,8 @@ class TournamentFamily(Family):
         tournaments[sample_id] = TournamentInstance.sample_tournament(
             tournament, sample_size, self.experiment_id, sample_id, self.culture_id)
 
-    self.instance_ids = list(tournaments.keys())
+    # self.instance_ids = list(tournaments.keys())
     return tournaments
-
-  # def prepare_tournament_family(self):
-  # if self.single:
-  # if 'adjacency_matrix' in self.params:
-  #   adjacency_matrix = self.params['adjacency_matrix']
-  #   tournaments = {
-  #       self.family_id:
-  #       TournamentInstance(adjacency_matrix,
-  #                          self.experiment_id,
-  #                          self.family_id,
-  #                          self.culture_id)
-  #   }
-  # elif self.culture_id.startswith('bridge-'):
-  #   if "db" not in self.params:
-  #     raise ValueError('db must be specified for bridge culture.')
-  #   path = os.path.join(os.getcwd(),
-  #                       "experiments",
-  #                       self.experiment_id,
-  #                       "dbs",
-  #                       f'{self.params["db"]}')
-  #   if not os.path.exists(path):
-  #     print(path)
-  #     raise ValueError(f'Database {self.params["db"]} not found.')
-  #   df = mdb.read_table(path, 'Matchdresults', converters_from_schema=False)
-  #   tournaments = {
-  #       self.family_id:
-  #       TournamentInstance.from_bridge_df(df,
-  #                                         self.experiment_id,
-  #                                         self.family_id,
-  #                                         self.culture_id)
-  #   }
-  # else:
-  #   raise ValueError('Adjacency_matrix must be specified for a single tournament.')
-  # if 'compass' in self.params:
-  #   tournaments = {
-  #       tournament.instance_id: tournament
-  #       for tournament in TournamentInstance.from_compass(self.num_participants,
-  #                                                         self.params['compass'],
-  #                                                         self.experiment_id,
-  #                                                         self.family_id,
-  #                                                         self.culture_id)
-  #   }
-  # elif self.culture_id.startswith('nba-'):
-  #   if "dir" not in self.params:
-  #     raise ValueError('dir must be specified for NBA culture.')
-  #   path = os.path.join(os.getcwd(),
-  #                       "experiments",
-  #                       self.experiment_id,
-  #                       f'{self.params["dir"]}')
-  #   tournaments = {}
-  #   files = os.listdir(path) if not path.endswith('.csv') else [path]
-  #   for csv in files:
-  #     if csv.endswith('.csv'):
-  #       df = pd.read_csv(os.path.join(path, csv))
-  #       instance_id = csv.split('_')[0]
-  #       instance = TournamentInstance.from_nba_df(df,
-  #                                                 self.params,
-  #                                                 self.experiment_id,
-  #                                                 instance_id,
-  #                                                 self.culture_id)
-  #       # if len(instance.graph.nodes()) == 30:
-  #       tournaments[instance_id] = instance
-  #       # else:
-  #       #   print(instance_id, len(instance.graph.nodes()))
 
   def prepare_from_json_family(self):
     path = os.path.join(os.getcwd(),
@@ -314,19 +261,46 @@ class TournamentFamily(Family):
     if self.single:
       filenames = [self.culture_id + '.json']
     else:
-      filenames = [os.path.join(path, f) for f in os.listdir(path)]
+      filenames = os.listdir(path)
+    filepaths = [os.path.join(path, filename) for filename in filenames]
     tournaments = {}
-    for filename in filenames:
+    for i, filepath in enumerate(filepaths):
       if not os.path.exists(path):
         print(path)
-        raise ValueError(f'Json {filename} not found.')
-      if filename[:-5] != ".json":
+        raise ValueError(f'Json {filepath} not found.')
+      if filepath[-5:] != ".json":
+        print(f"Skipping {filepath} because it is not a json file.")
         continue
       else:
-        instance_id = os.path.basename(filename)[:-5]
-      with open(path) as f:
-        tournaments[self.family_id] = TournamentInstance.from_dict_of_lists(
-            json.load(f), self.experiment_id, self.family_id, self.culture_id)
+        instance_id = os.path.basename(filepath)[:-5]
+      with open(filepath) as f:
+        instance = TournamentInstance.from_dict_of_lists(json.load(f),
+                                                         self.experiment_id,
+                                                         instance_id,
+                                                         self.culture_id)
+        if self.num_participants < len(instance.graph.nodes):
+          if 'sample_count' in self.params:
+            count = self.params['sample_count']
+          else:
+            print(
+                f'Implicit sampling of family {self.family_id}. Add sample_count to params to specify the number of samples per json.'
+            )
+            count = self.size // len(filepaths)
+          for i in range(count):
+            instance_id += "_" + str(i)
+            tournaments[instance_id] = TournamentInstance.sample_tournament(
+                instance,
+                self.num_participants,
+                self.experiment_id,
+                instance_id,
+                self.culture_id)
+        elif self.num_participants > len(instance.graph.nodes):
+          raise ValueError(
+              f'Number of participants {self.num_participants} in family {self.family_id} (file: {filepath}) cannot be larger than the number of nodes in the graph {len(instance.graph.nodes)}.'
+          )
+        else:
+          tournaments[instance_id] = instance
+    return tournaments
 
   # def prepare_from_ordinal_election_family(self):
   #   if 'num_voters' in self.params:
@@ -359,6 +333,8 @@ class TournamentFamily(Family):
   def prepare_family(self, plot_path=None):
     if self.instance_type == InstanceType.TOURNAMENT:
       tournaments = self.prepare_tournament_family()
+    elif self.instance_type == InstanceType.ORDINAL:
+      tournaments = self.prepare_from_ordinal_election_family()
     elif self.instance_type == InstanceType.JSON:
       tournaments = self.prepare_from_json_family()
     elif self.instance_type == InstanceType.SPECIAL:

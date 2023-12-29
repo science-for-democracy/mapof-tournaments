@@ -69,8 +69,8 @@ class TournamentInstance(Instance):
     return sp_matrix
 
   @staticmethod
-  def raw(adjacency_matrix):
-    return TournamentInstance(adjacency_matrix, 'none', 'none', 'none')
+  def raw(graph):
+    return TournamentInstance(graph, 'none', 'none', 'none')
 
   @staticmethod
   def from_compass(num_participants: int,
@@ -332,7 +332,7 @@ class TournamentInstance(Instance):
     return G
 
   def save_graph_plot(self, path, **kwargs):
-    G = self._to_graphviz(relabel=True, **kwargs)
+    G = self._to_graphviz(**kwargs)
     if path[:-4] != '.png':
       path = path + '.png'
     G.draw(path)

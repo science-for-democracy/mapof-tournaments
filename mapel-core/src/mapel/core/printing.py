@@ -208,6 +208,7 @@ def print_map_2d_colored_by_feature(experiment,
                                     normalizing_func=None,
                                     xticklabels=None,
                                     cmap=None,
+                                    discrete=False,
                                     marker_func=None,
                                     tex=False,
                                     feature_labelsize=14,
@@ -262,6 +263,7 @@ def print_map_2d_colored_by_feature(experiment,
                                             lower_limit=lower_limit,
                                             scale=scale,
                                             xticklabels=xticklabels, cmap=cmap,
+                                            discrete=discrete,
                                             omit=omit,
                                             ticks=ticks, column_id=column_id,
                                             feature_labelsize=feature_labelsize,
@@ -760,6 +762,7 @@ def _color_map_by_feature(experiment=None,
                           xticklabels=None,
                           ms=20,
                           cmap=None,
+                          discrete=False,
                           ticks=None,
                           dim=2,
                           rounding=1,
@@ -791,12 +794,15 @@ def _color_map_by_feature(experiment=None,
   print(markers)
   print(mses)
 
-  if cmap is None:
+  if cmap is None or discrete:
     if rounding == 0:
       num_colors = int(min(_max - _min + 1, 101))
       if num_colors < 10:
         xticklabels = [str(q) for q in range(int(_min), int(_max) + 1)]
         ticks_pos = [(2 * q + 1) / num_colors / 2 for q in range(num_colors)]
+      if cmap is not None:
+        linear_cmap = plt.cm.get_cmap(cmap)
+        colors = linear_cmap(np.linspace(0, 1, num_colors))
       if colors is None:
         cmap = custom_div_cmap(num_colors=num_colors)
       else:

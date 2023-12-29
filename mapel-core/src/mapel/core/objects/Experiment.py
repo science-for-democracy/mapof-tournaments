@@ -4,20 +4,18 @@ import itertools
 import logging
 import math
 import os
-from abc import ABCMeta, abstractmethod
 import time
+from abc import ABCMeta, abstractmethod
 
-from scipy.stats import stats
-from tqdm import tqdm
-
-from PIL import Image
-from mapel.core.objects.Family import Family
+import mapel.core.embedding.embed as embed
+import mapel.core.persistence.experiment_exports as exports
+import mapel.core.persistence.experiment_imports as imports
 import mapel.core.printing as pr
 import matplotlib.pyplot as plt
-
-import mapel.core.persistence.experiment_imports as imports
-import mapel.core.persistence.experiment_exports as exports
-import mapel.core.embedding.embed as embed
+from mapel.core.objects.Family import Family
+from PIL import Image
+from scipy.stats import stats
+from tqdm import tqdm
 
 COLORS = []
 

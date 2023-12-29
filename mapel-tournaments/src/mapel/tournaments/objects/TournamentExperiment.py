@@ -22,6 +22,7 @@ from mapel.core.objects.Family import Family
 from mapel.core.objects.Instance import Instance
 from mapel.core.utils import make_folder_if_do_not_exist
 from mapel.elections.objects.ElectionFamily import ElectionFamily
+from mapel.tournaments.objects.Features import get_feature
 from mapel.tournaments.objects.TournamentFamily import TournamentFamily
 from mapel.tournaments.objects.TournamentSimilarity import (get_distance,
                                                             parallel_runner)
@@ -55,12 +56,17 @@ class TournamentExperiment(Experiment):
                      with_matrix=with_matrix)
     self.instance_type = 'tournaments'
 
+  def __str__(self):
+    return f"TournamentExperiment: {self.experiment_id}\n {len(self.instances) if self.instances else None} instances\n {len(self.distances) if self.distances else None} distances\n {len(self.coordinates) if self.coordinates else None} coordinates"
+
   def create_structure(self) -> None:
     if not os.path.isdir("experiments/"):
       os.mkdir(os.path.join(os.getcwd(), "experiments"))
 
     if not os.path.isdir("images/"):
       os.mkdir(os.path.join(os.getcwd(), "images"))
+    if not os.path.isdir("jsons/"):
+      os.mkdir(os.path.join(os.getcwd(), "jsons"))
 
     if not os.path.isdir("trash/"):
       os.mkdir(os.path.join(os.getcwd(), "trash"))
@@ -303,15 +309,15 @@ class TournamentExperiment(Experiment):
         j in indices
         if instance_ids[i] not in self.distances or instance_ids[j] not in self.distances
     ]
-    # print(indices_to_compute)
     work = [(metric, tournaments[i], tournaments[j]) for i, j in indices_to_compute]
+    # with Pool() as p:
+    #   distances = list(
+    #       process_map(parallel_runner,
+    #                   work,
+    #                   total=len(work),
+    #                   chunksize=max(1, len(work) // (5000 * os.cpu_count()))))
     with Pool() as p:
-      distances = list(
-          process_map(parallel_runner,
-                      work,
-                      total=len(work),
-                      chunksize=max(1, len(work) // (5000 * os.cpu_count()))))
-      # distances = p.starmap(metric, work)
+      distances = list(tqdm(p.imap(parallel_runner, work), total=len(work)))
     for d, (i, j) in zip(distances, indices_to_compute):
       self.distances.setdefault(instance_ids[i], dict())
       self.distances.setdefault(instance_ids[j], dict())
@@ -340,19 +346,19 @@ class TournamentExperiment(Experiment):
             writer.writerow([election_1, election_2, distance, time_])
 
   def compute_distances(self,
-                        metric: str = "ged_blp",
+                        distance_id: str = "ged_blp",
                         parallel: bool = False,
                         clean: bool = False,
                         print_top=False):
     if not self.distances or clean:
-      print(f"Generating {metric} from scratch...")
+      print(f"Generating {distance_id} from scratch...")
       self.distances = dict()
-    if metric:
-      self.distance_id = metric
+    if distance_id:
+      self.distance_id = distance_id
     if parallel:
-      self._compute_distances_parallel(get_distance(metric))
+      self._compute_distances_parallel(get_distance(distance_id))
     else:
-      self._compute_distances(get_distance(metric))
+      self._compute_distances(get_distance(distance_id))
 
     if print_top:
       if isinstance(self.distances, dict):
@@ -367,15 +373,26 @@ class TournamentExperiment(Experiment):
       print(''.join([str(x) + '\n' for x in top]))
     self._store_distances_to_file(self.distance_id, self.distances, None, False)
 
-  def save_tournament_plots(self, path: str = 'graphs'):
+  def save_tournament_plots(self, path: str = 'graphs', **kwargs):
     if not os.path.exists(path):
       os.makedirs(path)
     for k, v in self.instances.items():
-      v.save_graph_plot(os.path.join(path, str(k)))
+      v.save_graph_plot(os.path.join(path, str(k), **kwargs))
+
+  def _compute_feature(self, feature_fun):
+    feature_dict = {
+        'value': {}, 'time': {}
+    }
+    for instance_id in tqdm(self.instances,
+                            desc=f'Computing feature: {feature_fun.__name__}'):
+      instance = self.instances[instance_id]
+      start = time.time()
+      feature_dict['value'][instance_id] = feature_fun(instance)
+      feature_dict['time'][instance_id] = time.time() - start
+    return feature_dict
 
   def compute_feature(self,
                       feature_id,
-                      feature_fun,
                       feature_long_id=None,
                       saveas=None,
                       clean=False,
@@ -386,19 +403,13 @@ class TournamentExperiment(Experiment):
     folder_path = os.path.join(os.getcwd(), "experiments", self.experiment_id, "features")
     make_folder_if_do_not_exist(folder_path)
     saveas = feature_long_id if saveas is None else saveas
-    # filepath = os.path.join(folder_path, f'{saveas}.csv')
-    # if os.path.exists(filepath) and not clean:
-    #   print(f"Feature {feature_id} already exists. Not calculating...")
-    #   return
+    filepath = os.path.join(folder_path, f'{saveas}.csv')
+    if os.path.exists(filepath) and not clean:
+      print(f"Feature {feature_id} already exists. Not calculating...")
+      return
+    feature_fun = get_feature(feature_id)
 
-    feature_dict = {
-        'value': {}, 'time': {}
-    }
-    for instance_id in tqdm(self.instances, desc=f'Computing feature: {feature_id}'):
-      instance = self.instances[instance_id]
-      start = time.time()
-      feature_dict['value'][instance_id] = feature_fun(instance, **kwargs)
-      feature_dict['time'][instance_id] = time.time() - start
+    feature_dict = self._compute_feature(feature_fun)
 
     if self.is_exported:
       exports.export_feature_to_file(self, feature_id, saveas, feature_dict)

@@ -6,6 +6,7 @@
 import itertools
 import subprocess
 from random import uniform
+from subprocess import check_output
 
 import networkx as nx
 import numpy as np
@@ -70,9 +71,46 @@ def rock_paper_scissors(num_participants, _count, _params):
   return [nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)]
 
 
+@register(["o2rps"])
+def o2rps(num_participants, _count, _params):
+  tournaments = []
+  for i, n in enumerate(range(1, num_participants - 2)):
+    g1 = ordered(n, 1, {})[0]
+    g2 = rock_paper_scissors(num_participants - n, 1, {})[0]
+    g2 = nx.relabel_nodes(g2, {i: i + n
+                               for i in g2.nodes})
+
+    g = nx.compose(g1, g2)
+    for i in g1.nodes:
+      for j in g2.nodes:
+        g.add_edge(i, j)
+    tournaments.append(g)
+  return tournaments
+
+
+@register(["rps2o"])
+def rps2o(num_participants, _count, _params):
+  tournaments = []
+  for i, n in enumerate(range(1, num_participants - 2)):
+    g1 = ordered(n, 1, {})[0]
+    g2 = rock_paper_scissors(num_participants - n, 1, {})[0]
+    g2 = nx.relabel_nodes(g2, {i: i + n
+                               for i in g2.nodes})
+
+    g = nx.compose(g1, g2)
+    for i in g1.nodes:
+      for j in g2.nodes:
+        g.add_edge(j, i)
+    tournaments.append(g)
+  return tournaments
+
+
 ### Statistical
-@register(["uniform", "random"])
+
+
+# @register(["uniform", "random"])
 def uniform_random(num_participants, count, _params):
+  # superseded by uniform_weighted!!!
   """Choose each edge direction with probability 0.5"""
   tournaments = []
   for i in range(count):
@@ -87,28 +125,145 @@ def uniform_random(num_participants, count, _params):
   return tournaments
 
 
-@register("condorset_noise")
-def condorcet_noise(num_participants, count, params):
-  """Start with an initial ordered tournament and invert each edge with probability p"""
+def _noise(graph, count, params):
+  """Create a family of tournaments by randomly reversaling edges. The
+  probability of reversaling an edge is p."""
   if 'p' not in params:
     raise ValueError(
         "p must be specified for the 'condorcet_noise' culture inside 'params'")
   p = params['p']
+  tournaments = []
   if isinstance(p, float):
-    p = [p]
+    p = [p] * count
   elif not isinstance(p, list):
     raise ValueError("p must be a float or a list of floats")
+  for i in range(count):
+    g = graph.copy()
+    for e in g.edges():
+      if uniform(0, 1) < p[i]:
+        g.remove_edge(*e)
+        g.add_edge(*reversed(e))
+    tournaments.append(g)
+  return tournaments
+
+
+# @register(["ordered_noise", "condorset_noise"])
+# def condorcet_noise(num_participants, count, params):
+#   """Start with an initial ordered tournament and reversal each edge with probability p"""
+#   if 'p' not in params:
+#     raise ValueError(
+#         "p must be specified for the 'condorcet_noise' culture inside 'params'")
+#   p = params['p']
+#   if isinstance(p, float):
+#     p = [p]
+#   elif not isinstance(p, list):
+#     raise ValueError("p must be a float or a list of floats")
+#   tournaments = []
+#   for c in range(count):
+#     adjacency_matrix = np.zeros((num_participants, num_participants))
+#     for i in range(num_participants):
+#       for j in range(i + 1, num_participants):
+#         if np.random.rand() < p[c]:
+#           adjacency_matrix[j, i] = 1
+#         else:
+#           adjacency_matrix[i, j] = 1
+#     tournaments.append(nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph))
+#   return tournaments
+
+
+@register(["ordered_noise", "condorset_noise"])
+def condorcet_noise(num_participants, count, params):
+  """Start with an initial ordered tournament and reverse each edge with probability p"""
+  graph = ordered(num_participants, 1, {})[0]
+  return _noise(graph, count, params)
+
+
+def _reversal(graph, count, params):
+  """Create a family of tournaments by reversing exactly params['reversals'] edges."""
+  if 'reversals' not in params:
+    raise ValueError(
+        "reversals must be specified for the 'condorcet_reversal' culture inside 'params'"
+    )
+  reversals = params['reversals']
   tournaments = []
+  if isinstance(reversals, int):
+    reversals = [reversals] * count
+  elif not isinstance(reversals, list):
+    raise ValueError("reversals must be an int or a list of ints")
+  for i in range(count):
+    g = graph.copy()
+    edges = list(g.edges())
+    np.random.shuffle(edges)
+    for e in edges[:reversals[i]]:
+      g.remove_edge(*e)
+      g.add_edge(*reversed(e))
+    tournaments.append(g)
+  return tournaments
+
+
+@register(["ordered_reversal", "condorset_reversal"])
+def condorcet_reversal(num_participants, count, params):
+  """Start with an initial ordered tournament and reverse exactly params['reversals'] edges."""
+  graph = ordered(num_participants, 1, {})[0]
+  return _reversal(graph, count, params)
+
+
+def _weighted(weights, count):
+  """Create a family of tournaments from a given weight distribution."""
+  tournaments = []
+  n = len(weights)
   for c in range(count):
-    adjacency_matrix = np.zeros((num_participants, num_participants))
-    for i in range(num_participants):
-      for j in range(i + 1, num_participants):
-        if np.random.rand() < p[c]:
-          adjacency_matrix[j, i] = 1
-        else:
+    adjacency_matrix = np.zeros((n, n))
+    for i in range(n):
+      for j in range(i + 1, n):
+        if np.random.rand() < weights[i] / (weights[i] + weights[j]):
           adjacency_matrix[i, j] = 1
+        else:
+          adjacency_matrix[j, i] = 1
     tournaments.append(nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph))
   return tournaments
+
+
+@register("pow2_weighted")
+def pow2_weighted(num_participants, count, params):
+  """Create a family of tournaments with a weight distribution of 2^i."""
+  weights = [2**i for i in range(num_participants)]
+  return _weighted(weights, count)
+
+
+@register(["exponential", "exp_weighted"])
+def exp_weighted(num_participants, count, params):
+  """Create a family of tournaments with a weight distribution of e^i."""
+  weights = [np.exp(i) for i in range(num_participants)]
+  return _weighted(weights, count)
+
+
+@register(["linear", "lin_weighted"])
+def lin_weighted(num_participants, count, params):
+  """Create a family of tournaments with a weight distribution of i."""
+  weights = [i for i in range(num_participants)]
+  return _weighted(weights, count)
+
+
+@register(["logarithmic", "log_weighted"])
+def log_weighted(num_participants, count, params):
+  """Create a family of tournaments with a weight distribution of log(i)."""
+  weights = [np.log(i) for i in range(1, num_participants + 1)]
+  return _weighted(weights, count)
+
+
+@register(["sqrt", "sqrt_weighted"])
+def sqrt_weighted(num_participants, count, params):
+  """Create a family of tournaments with a weight distribution of sqrt(i)."""
+  weights = [np.sqrt(i) for i in range(1, num_participants + 1)]
+  return _weighted(weights, count)
+
+
+@register(["uniform", "random", "uniform_weighted"])
+def uniform_weighted(num_participants, count, params):
+  """Create a family of tournaments with a weight distribution of 1."""
+  weights = [1 for i in range(num_participants)]
+  return _weighted(weights, count)
 
 
 ### From elections
@@ -135,7 +290,7 @@ def from_ordinal_election(culture_id, num_participants, count, params):
   if 'num_voters' not in params:
     raise ValueError(
         "num_voters must be specified for the 'ordinal_election' culture inside 'params'")
-  num_voters = params['num_voters']
+  num_voters = int(params['num_voters'])
   params.pop('num_voters')
   tournaments = []
   for i in range(count):
@@ -147,21 +302,20 @@ def from_ordinal_election(culture_id, num_participants, count, params):
   return tournaments
 
 
-@register("mallows")
-def mallows_ordinal(num_participants, count, params):
-  return from_ordinal_election('mallows', num_participants, count, params)
+# @register("mallows")
+# def mallows_ordinal(num_participants, count, params):
+#   return from_ordinal_election('mallows', num_participants, count, params)
 
-
-@register("urn")
-def urn_ordinal(num_participants, count, params):
-  return from_ordinal_election('urn', num_participants, count, params)
+# @register("urn")
+# def urn_ordinal(num_participants, count, params):
+#   return from_ordinal_election('urn', num_participants, count, params)
 
 
 ### Special
 @register("diffused")
 def diffused(tournament, count, alpha=None, ev=None):
-  """Create a family of tournaments by randomly inverting edges. The
-  probability of inverting an edge is alpha. If ev is specified, alpha is
+  """Create a family of tournaments by randomly reversaling edges. The
+  probability of reversaling an edge is alpha. If ev is specified, alpha is
   computed as ev / |E|."""
   if ev is not None:
     alpha = ev / len(tournament.graph.edges())
@@ -201,23 +355,11 @@ tournament_count_lookup = {
 }
 
 
-@register("nauty")
-def nauty(n, size, params):
-  """Generate size random tournaments with n participants using nauty."""
-  args = ["nauty-gentourng", str(n)]
-  if 'resmod' in params:
-    args.append(params['resmod'])
-  elif size < tournament_count_lookup[n]:
-    try:
-      args.append(f'0/{tournament_count_lookup[n]*2/size}')
-    except KeyError:
-      raise ValueError(f"n={n} is too big, please supply res/mod manually")
-  if 'quiet' in params and params['quiet']:
-    args.append('-q')
-  proc = subprocess.run(args, stdout=subprocess.PIPE)
+def nauty_decode(output, n, size, seed=0):
   graphs = []
-  lines = proc.stdout.decode('utf-8').split('\n')[:-1]
+  lines = output.decode('utf-8').split('\n')[:-1]
   if len(lines) > size:
+    np.random.seed(seed)
     lines = np.random.choice(lines, size, replace=False)
   for line in lines:
     arr = np.zeros((n, n), dtype=np.int8)
@@ -231,6 +373,43 @@ def nauty(n, size, params):
         ind += 1
     graphs.append(nx.from_numpy_array(arr, create_using=nx.DiGraph))
   return graphs
+
+
+@register("nauty")
+def nauty(n, size, params):
+  """Generate size random tournaments with n participants using nauty."""
+  args = ["nauty-gentourng", str(n)]
+  if 'opt' in params:
+    args = ["nauty-gentourng", params['opt'], str(n)]
+  elif 'resmod' in params:
+    args = ["nauty-gentourng", str(n), params['resmod']]
+  elif size < tournament_count_lookup[n]:
+    try:
+      args.append(f'0/{tournament_count_lookup[n]*2/size}')
+    except KeyError:
+      raise ValueError(f"n={n} is too big, please supply res/mod manually")
+  else:
+    args = ["nauty-gentourng", str(n)]
+  if 'quiet' in params and params['quiet']:
+    args.append('-q')
+  proc = subprocess.run(args, stdout=subprocess.PIPE, bufsize=10)
+  return nauty_decode(proc.stdout, n, size)
+
+
+@register("nauty-simple")
+def nauty_simple(n, size, _params):
+  time_limit = 5
+  mod = 1
+  args = ["nauty-gentourng", "-u", str(n), f"0/{mod}"]
+  while True:
+    try:
+      output = subprocess.check_output(args, timeout=time_limit, bufsize=0)
+      break
+    except subprocess.TimeoutExpired:
+      mod *= 4
+      args = ["nauty-gentourng", str(n), f"0/{mod}"]
+
+  return nauty(n, size, {'resmod': f"0/{mod}"})
 
 
 #### TODO: Taken from https://github.com/uschmidtk/MoV/blob/master/experiments.py
