@@ -531,18 +531,15 @@ def _import_values_for_feature(experiment,
   ctr = 0
 
   my_shade = {}
-  for family_id in experiment.families:
-    for k in range(experiment.families[family_id].size):
+  for instance_id in experiment.instances.keys():
+    shade = values[instance_id]
 
-      try:
-        if experiment.families[family_id].size == 1:
-          election_id = family_id
-        else:
-          election_id = family_id + '_' + str(k)
-        shade = values[election_id]
-      except:
-        election_id = family_id + '_' + str(k)
-        shade = values[election_id]
+    if shade is None or instance_id in omit:
+      my_shade[instance_id] = None
+    elif normalizing_func is not None:
+      my_shade[instance_id] = normalizing_func(shade)
+    else:
+      my_shade[instance_id] = shade
 
       if shade is None or election_id in omit:
         my_shade[election_id] = None
@@ -564,23 +561,13 @@ def _import_values_for_feature(experiment,
     local_min = 0.75
 
   names = []
-  for family_id in experiment.families:
-
-    for k in range(experiment.families[family_id].size):
-
-      try:
-        if experiment.families[family_id].size == 1:
-          election_id = family_id
-        else:
-          election_id = family_id + '_' + str(k)
-        shade = my_shade[election_id]
-      except:
-        election_id = family_id + '_' + str(k)
-        shade = my_shade[election_id]
+  for family in experiment.families.values():
+    for instance_id in family.instance_ids:
+      shade = values[instance_id]
 
       if shade is None:
-        blank_xx.append(experiment.coordinates[election_id][0])
-        blank_yy.append(experiment.coordinates[election_id][1])
+        blank_xx.append(experiment.coordinates[instance_id][0])
+        blank_yy.append(experiment.coordinates[instance_id][1])
         continue
 
       if normalizing_func is not None:
@@ -588,7 +575,7 @@ def _import_values_for_feature(experiment,
 
       shade = (shade - local_min) / (local_max - local_min)
       shades.append(shade)
-      names.append(election_id)
+      names.append(instance_id)
 
       mses.append(experiment.families[family_id].ms)
 
@@ -597,10 +584,10 @@ def _import_values_for_feature(experiment,
         marker = marker_func(shade)
       markers.append(marker)
 
-      xx.append(experiment.coordinates[election_id][0])
-      yy.append(experiment.coordinates[election_id][1])
+      xx.append(experiment.coordinates[instance_id][0])
+      yy.append(experiment.coordinates[instance_id][1])
       if dim == 3:
-        zz.append(experiment.coordinates[election_id][2])
+        zz.append(experiment.coordinates[instance_id][2])
 
       ctr += 1
 

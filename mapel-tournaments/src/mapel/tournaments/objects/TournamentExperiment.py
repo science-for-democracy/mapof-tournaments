@@ -391,6 +391,21 @@ class TournamentExperiment(Experiment):
       feature_dict['time'][instance_id] = time.time() - start
     return feature_dict
 
+  def _compute_feature_parallel(self, feature_fun):
+    feature_dict = {
+        'value': {}, 'time': {}
+    }
+    work = [(feature_fun, self.instances[instance_id]) for instance_id in self.instances]
+    with Pool() as p:
+      values = list(
+          tqdm(p.imap(parallel_runner, work),
+               total=len(work),
+               desc=f'Computing feature: {feature_fun.__name__}'))
+    for instance_id, value in zip(work, values):
+      feature_dict['value'][instance_id] = feature_fun(instance_id)
+      feature_dict['time'][instance_id] = -1
+    return feature_dict
+
   def compute_feature(self,
                       feature_id,
                       feature_long_id=None,
@@ -409,7 +424,10 @@ class TournamentExperiment(Experiment):
       return
     feature_fun = get_feature(feature_id)
 
-    feature_dict = self._compute_feature(feature_fun)
+    if feature_id[-9:] == '_parallel':
+      feature_dict = self._compute_feature_parallel(feature_fun)
+    else:
+      feature_dict = self._compute_feature(feature_fun)
 
     if self.is_exported:
       exports.export_feature_to_file(self, feature_id, saveas, feature_dict)

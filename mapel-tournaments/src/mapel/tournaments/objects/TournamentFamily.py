@@ -249,7 +249,7 @@ class TournamentFamily(Family):
         tournaments[sample_id] = TournamentInstance.sample_tournament(
             tournament, sample_size, self.experiment_id, sample_id, self.culture_id)
 
-    # self.instance_ids = list(tournaments.keys())
+    self.instance_ids = list(tournaments.keys())
     return tournaments
 
   def prepare_from_json_family(self):

@@ -26,7 +26,7 @@ def get_feature(feature_id: str):
     raise ValueError(f"No such feature id: {feature_id}")
 
 
-def register(name: str | list[str] = [], skip_function_name=False):
+def register(name: str | list[str] = [], parallel=False, skip_function_name=False):
 
   def decorator(func):
     if isinstance(name, str):
@@ -40,6 +40,10 @@ def register(name: str | list[str] = [], skip_function_name=False):
       registered_features[names[0]] = func
       for n in names:
         aliases[n] = names[0]
+      if parallel:
+        registered_features[names[0] + "_parallel"] = func
+        for n in names:
+          aliases[n + "_parallel"] = names[0] + "_parallel"
     else:
       raise ValueError("name must be a string or a list of strings")
     return func
@@ -73,7 +77,7 @@ def longest_cycle_length(tournament):
   return len(largest)
 
 
-@register("slater_winners_count")
+@register("slater_winners_count", parallel=True)
 def slater_winner_count(tournament):
   """Calculates the number of Slater winners of a given tournament"""
   return len(slater_winners(tournament))
@@ -98,6 +102,12 @@ def copeland_winner_count(tournament):
 def top_cycle_winner_count(tournament):
   """Calculates the number of top cycle winners of a given tournament"""
   return len(top_cycle_winners(tournament))
+
+
+@register("highest_degree")
+def highest_degree(tournament):
+  """Calculates the highest degree of a given tournament"""
+  return max(tournament.graph.out_degree(), key=lambda x: x[1])[1]
 
 
 if __name__ == '__main__':

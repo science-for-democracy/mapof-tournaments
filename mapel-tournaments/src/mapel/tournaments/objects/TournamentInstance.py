@@ -37,6 +37,7 @@ class TournamentInstance(Instance):
                graph,
                experiment_id: str,
                instance_id: str,
+               family_id: str,
                culture_id: str = 'none',
                alpha: float = np.NaN) -> None:
     super().__init__(experiment_id=experiment_id,

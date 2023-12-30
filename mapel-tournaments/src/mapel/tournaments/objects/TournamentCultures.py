@@ -1,7 +1,7 @@
 """This module contains functions to generate tournaments from different cultures.
 
 >>> print(list(registered_cultures.keys()), sep="\\n")
-['ordered', 'rock-paper-scissor', 'uniform', 'condorset_noise', 'mallows', 'urn', 'diffused', 'nauty']
+['ordered', 'rock-paper-scissor', 'uniform', 'condorcet_noise', 'mallows', 'urn', 'diffused', 'nauty']
 """
 import itertools
 import subprocess
@@ -147,7 +147,7 @@ def _noise(graph, count, params):
   return tournaments
 
 
-# @register(["ordered_noise", "condorset_noise"])
+# @register(["ordered_noise", "condorcet_noise"])
 # def condorcet_noise(num_participants, count, params):
 #   """Start with an initial ordered tournament and reversal each edge with probability p"""
 #   if 'p' not in params:
@@ -171,7 +171,7 @@ def _noise(graph, count, params):
 #   return tournaments
 
 
-@register(["ordered_noise", "condorset_noise"])
+@register(["ordered_noise", "condorcet_noise"])
 def condorcet_noise(num_participants, count, params):
   """Start with an initial ordered tournament and reverse each edge with probability p"""
   graph = ordered(num_participants, 1, {})[0]
@@ -201,7 +201,7 @@ def _reversal(graph, count, params):
   return tournaments
 
 
-@register(["ordered_reversal", "condorset_reversal"])
+@register(["ordered_reversal", "condorcet_reversal"])
 def condorcet_reversal(num_participants, count, params):
   """Start with an initial ordered tournament and reverse exactly params['reversals'] edges."""
   graph = ordered(num_participants, 1, {})[0]
