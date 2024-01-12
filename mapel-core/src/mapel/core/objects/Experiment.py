@@ -403,8 +403,9 @@ class Experiment:
                                           alpha=0.25,
                                           color='purple',
                                           title_size=24,
-                                          label_size=20,
-                                          ticks_size=10):
+                                          label_size=12,
+                                          ticks_size=10,
+                                          tex=False):
     if distance_id_1 is None:
       logging.warning('distance_id_1 is not defined')
     if distance_id_2 is None:
@@ -429,6 +430,8 @@ class Experiment:
           'emd-positionwise': 'EMD-Positionwise',
           'l1-positionwise': "$\ell_1$-Positionwise",
           'l1-pairwise': "$\ell_1$-Pairwise",
+          'ged_blp': 'Graph Edit Distance',
+          'katz_cen': 'Katz Centrality',
       }.get(name, name)
 
     for name_1, name_2 in itertools.combinations(names, 2):
@@ -466,19 +469,21 @@ class Experiment:
       plt.xlabel(nice(name_1), size=label_size)
       plt.ylabel(nice(name_2), size=label_size)
 
-      if title:
+      if title is not None:
         plt.title(title, size=title_size)
       else:
         plt.title(f"PCC = {PCC}, SCC = {SCC}", size=title_size)
 
-      path = f'images/correlation'
+      path = f'images/correlation/'
       is_exist = os.path.exists(path)
 
       if not is_exist:
         os.makedirs(path)
 
-      saveas = f'images/correlation/corr_{name_1}_{name_2}.png'
-      plt.savefig(saveas, pad_inches=1)
+      saveas = f'corr_{name_1}_{name_2}.png'
+      if tex:
+        pr._saveas_tex(saveas=saveas)
+      plt.savefig(path + saveas, pad_inches=1)
       # plt.show()
 
   def merge_election_images(self,

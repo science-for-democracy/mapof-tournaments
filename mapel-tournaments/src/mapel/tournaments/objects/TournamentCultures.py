@@ -71,6 +71,12 @@ def rock_paper_scissors(num_participants, _count, _params):
   return [nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)]
 
 
+@register("all-rps")
+def all_rps(num_participants, max_count, _params):
+  return nauty(num_participants,
+               max_count, {'opt': f'-d{(num_participants-1)//2}D{num_participants//2}'})
+
+
 @register(["o2rps"])
 def o2rps(num_participants, _count, _params):
   tournaments = []
@@ -139,7 +145,7 @@ def _noise(graph, count, params):
     raise ValueError("p must be a float or a list of floats")
   for i in range(count):
     g = graph.copy()
-    for e in g.edges():
+    for e in list(g.edges()):
       if uniform(0, 1) < p[i]:
         g.remove_edge(*e)
         g.add_edge(*reversed(e))
@@ -229,6 +235,17 @@ def pow2_weighted(num_participants, count, params):
   """Create a family of tournaments with a weight distribution of 2^i."""
   weights = [2**i for i in range(num_participants)]
   return _weighted(weights, count)
+
+
+@register("rand_pow_weighted")
+def rand_pow_weighted(num_participants, count, params):
+  """Create a family of tournaments with a weight distribution of x^i, where x is a random number from [1, 2)."""
+  res = []
+  for i in range(count):
+    r = np.random.rand() + 1
+    weights = [r**i for i in range(num_participants)]
+    res.append(_weighted(weights, 1)[0])
+  return res
 
 
 @register(["exponential", "exp_weighted"])
@@ -412,50 +429,67 @@ def nauty_simple(n, size, _params):
   return nauty(n, size, {'resmod': f"0/{mod}"})
 
 
-#### TODO: Taken from https://github.com/uschmidtk/MoV/blob/master/experiments.py
+import mapel.tournaments.objects.generate_profiles as pl
+#### TODO: Code below is taken from https://github.com/uschmidtk/MoV/blob/master/experiments.py
 import pandas as pd
 
-# def condorcet_noise(m, p):
-#   all_edges = []
-#   for s in itertools.combinations(range(m), 2):
-#     s = list(s)
-#     if s[0] != s[1]:
-#       coin = np.random.rand()
-#       if ((s[0] < s[1]) and (coin <= p)) or ((s[1] < s[0]) and (coin > p)):
-#         all_edges.append((s[0], s[1]))
-#       else:
-#         all_edges.append((s[1], s[0]))
-#   T = nx.DiGraph()
-#   T.add_nodes_from(range(m))
-#   T.add_edges_from(all_edges)
-#   if nx.tournament.is_tournament(T):
-#     return T
-#   else:
-#     print("There has been a mistake, this is not a tournament!")
 
-# def condorcet_noise_pref(n, m, p):
-#   all_edges = []
+def condorcet_tournament(n, m, p):
+  all_edges = []
 
-#   for i in range(n):
-#     for s in itertools.combinations(range(m), 2):
-#       s = list(s)
-#       if s[0] != s[1]:
-#         coin = np.random.rand()
-#         if ((s[0] < s[1]) and (coin <= p)) or ((s[1] < s[0]) and (coin > p)):
-#           all_edges.append((s[0], s[1]))
-#         else:
-#           all_edges.append((s[1], s[0]))
+  for i in range(n):
+    for s in itertools.combinations(range(m), 2):
+      s = list(s)
+      if s[0] != s[1]:
+        coin = np.random.rand()
+        if ((s[0] < s[1]) and (coin <= p)) or ((s[1] < s[0]) and (coin > p)):
+          all_edges.append((s[0], s[1]))
+        else:
+          all_edges.append((s[1], s[0]))
 
-#   edge_count = pd.Series(all_edges).value_counts()
-#   agg_edges = list(edge_count[edge_count > int(n / 2)].index)
+  edge_count = pd.Series(all_edges).value_counts()
+  agg_edges = list(edge_count[edge_count > int(n / 2)].index)
 
-#   T = nx.DiGraph()
-#   T.add_nodes_from(range(m))
-#   T.add_edges_from(agg_edges)
-#   if nx.tournament.is_tournament(T):
-#     return T
-#   else:
-#     print("There has been a mistake, this is not a tournament!")
+  T = nx.DiGraph()
+  T.add_nodes_from(range(m))
+  T.add_edges_from(agg_edges)
+  if nx.tournament.is_tournament(T):
+    return T
+  else:
+    print("There has been a mistake, this is not a tournament!")
+
+
+@register('mov_paper_condorcet_tournament')
+def mov_paper_condorcet_tournament(n, size, _params):
+  """Generate the condorcet noise model with voters as described in the MoV paper."""
+  # We're using 51 voters and p=0.55, same as they did
+  return [condorcet_tournament(51, n, 0.55) for _ in range(size)]
+
+
+def condorcet_tournament_direct(m, p):
+  all_edges = []
+  for s in itertools.combinations(range(m), 2):
+    s = list(s)
+    if s[0] != s[1]:
+      coin = np.random.rand()
+      if ((s[0] < s[1]) and (coin <= p)) or ((s[1] < s[0]) and (coin > p)):
+        all_edges.append((s[0], s[1]))
+      else:
+        all_edges.append((s[1], s[0]))
+  T = nx.DiGraph()
+  T.add_nodes_from(range(m))
+  T.add_edges_from(all_edges)
+  if nx.tournament.is_tournament(T):
+    return T
+  else:
+    print("There has been a mistake, this is not a tournament!")
+
+
+@register('mov_paper_condorcet_direct')
+def mov_paper_condorcet_direct(n, size, _params):
+  """Generate the condorcet noise model without voters as described in the MoV paper."""
+  # We're using 51 voters and p=0.55, same as they did
+  return [condorcet_tournament(51, n, 0.55) for _ in range(size)]
 
 
 def impartial_culture(n, m):
@@ -480,6 +514,13 @@ def impartial_culture(n, m):
     return T
   else:
     print("There has been a mistake, this is not a tournament!")
+
+
+@register('mov_paper_impartial_culture')
+def mov_paper_impartial_culture(n, size, _params):
+  """Generate the impartial culture model as described in the MoV paper."""
+  # We're using 51 voters, same as they did
+  return [impartial_culture(51, n) for _ in range(size)]
 
 
 def mallows(n, m, phi):
@@ -509,6 +550,13 @@ def mallows(n, m, phi):
     print("There has been a mistake, this is not a tournament!")
 
 
+@register('mov_paper_mallows')
+def mov_paper_mallows(n, size, _params):
+  """Generate the mallows model as described in the MoV paper."""
+  # We're using 51 voters, same as they did
+  return [mallows(51, n, 0.95) for _ in range(size)]
+
+
 def urn(n, m, replace):
   candmap = {i: i
              for i in range(m)}
@@ -536,6 +584,13 @@ def urn(n, m, replace):
     return T
   else:
     print("There has been a mistake, this is not a tournament!")
+
+
+@register('mov_paper_urn')
+def mov_paper_urn(n, size, _params):
+  """Generate the urn model as described in the MoV paper."""
+  # We're using 51 voters, same as they did
+  return [urn(51, n, True) for _ in range(size)]
 
 
 if __name__ == "__main__":

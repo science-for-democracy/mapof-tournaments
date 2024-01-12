@@ -4,6 +4,7 @@ import itertools
 import json
 import os
 import pickle
+import random
 import time
 from collections import defaultdict
 from enum import Enum
@@ -236,7 +237,10 @@ class TournamentExperiment(Experiment):
                  path: dict = dict(),
                  plot_path=None,
                  instance_type='tournament',
-                 tournament_id: str | None = None):
+                 tournament_id: str | None = None,
+                 seed=42):
+    np.random.seed(seed)
+    random.seed(seed)
     if tournament_id is not None:
       family_id = tournament_id
 
@@ -381,28 +385,37 @@ class TournamentExperiment(Experiment):
 
   def _compute_feature(self, feature_fun):
     feature_dict = {
-        'value': {}, 'time': {}
+        'value': {}, 'time': {}, 'value_std': {}, 'time_std': {}
     }
     for instance_id in tqdm(self.instances,
                             desc=f'Computing feature: {feature_fun.__name__}'):
       instance = self.instances[instance_id]
-      start = time.time()
-      feature_dict['value'][instance_id] = feature_fun(instance)
-      feature_dict['time'][instance_id] = time.time() - start
+      values = []
+      times = []
+      for _ in range(feature_fun.reps):
+        start = time.time()
+        values.append(feature_fun(instance, self))
+        end = time.time()
+        times.append(end - start)
+      feature_dict['value'][instance_id] = np.mean(values)
+      feature_dict['time'][instance_id] = np.mean(times)
+      feature_dict['value_std'][instance_id] = np.std(values)
+      feature_dict['time_std'][instance_id] = np.std(times)
     return feature_dict
 
   def _compute_feature_parallel(self, feature_fun):
     feature_dict = {
         'value': {}, 'time': {}
     }
-    work = [(feature_fun, self.instances[instance_id]) for instance_id in self.instances]
+    work = [(feature_fun, self.instances[instance_id], self)
+            for instance_id in self.instances]
     with Pool() as p:
       values = list(
           tqdm(p.imap(parallel_runner, work),
                total=len(work),
                desc=f'Computing feature: {feature_fun.__name__}'))
-    for instance_id, value in zip(work, values):
-      feature_dict['value'][instance_id] = feature_fun(instance_id)
+    for instance_id, value in zip(self.instances, values):
+      feature_dict['value'][instance_id] = value
       feature_dict['time'][instance_id] = -1
     return feature_dict
 
@@ -411,6 +424,7 @@ class TournamentExperiment(Experiment):
                       feature_long_id=None,
                       saveas=None,
                       clean=False,
+                      reps=25,
                       **kwargs):
     """ Compute a feature for all instances in the experiment """
     feature_long_id = feature_id if feature_long_id is None else feature_long_id

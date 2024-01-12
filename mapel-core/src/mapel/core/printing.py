@@ -1,17 +1,16 @@
 import math
 import os
 
+import mapel.core.persistence.experiment_imports as imports
 import matplotlib.pyplot as plt
 import numpy as np
+from mapel.core.glossary import *
 from PIL import Image
 
 try:
   import tikzplotlib
 except ImportError:
   tikzplotlib = None
-
-import mapel.core.persistence.experiment_imports as imports
-from mapel.core.glossary import *
 
 
 # New 1d map printing
@@ -208,7 +207,6 @@ def print_map_2d_colored_by_feature(experiment,
                                     normalizing_func=None,
                                     xticklabels=None,
                                     cmap=None,
-                                    discrete=False,
                                     marker_func=None,
                                     tex=False,
                                     feature_labelsize=14,
@@ -263,7 +261,6 @@ def print_map_2d_colored_by_feature(experiment,
                                             lower_limit=lower_limit,
                                             scale=scale,
                                             xticklabels=xticklabels, cmap=cmap,
-                                            discrete=discrete,
                                             omit=omit,
                                             ticks=ticks, column_id=column_id,
                                             feature_labelsize=feature_labelsize,
@@ -749,7 +746,6 @@ def _color_map_by_feature(experiment=None,
                           xticklabels=None,
                           ms=20,
                           cmap=None,
-                          discrete=False,
                           ticks=None,
                           dim=2,
                           rounding=1,
@@ -781,21 +777,20 @@ def _color_map_by_feature(experiment=None,
   print(markers)
   print(mses)
 
-  if cmap is None or discrete:
-    if rounding == 0:
-      num_colors = int(min(_max - _min + 1, 101))
-      if num_colors < 10:
-        xticklabels = [str(q) for q in range(int(_min), int(_max) + 1)]
-        ticks_pos = [(2 * q + 1) / num_colors / 2 for q in range(num_colors)]
-      if cmap is not None:
-        linear_cmap = plt.cm.get_cmap(cmap)
-        colors = linear_cmap(np.linspace(0, 1, num_colors))
-      if colors is None:
-        cmap = custom_div_cmap(num_colors=num_colors)
-      else:
-        cmap = custom_div_cmap(colors=colors, num_colors=num_colors)
+  if rounding == 0:
+    num_colors = int(min(_max - _min + 1, 101))
+    if num_colors < 20:
+      xticklabels = [str(q) for q in range(int(_min), int(_max) + 1)]
+      ticks_pos = [(2 * q + 1) / num_colors / 2 for q in range(num_colors)]
+    if cmap is not None:
+      linear_cmap = plt.cm.get_cmap(cmap)
+      colors = linear_cmap(np.linspace(0, 1, num_colors))
+    if colors is None:
+      cmap = custom_div_cmap(num_colors=num_colors)
     else:
-      cmap = custom_div_cmap()
+      cmap = custom_div_cmap(colors=colors, num_colors=num_colors)
+  if cmap is None:
+    cmap = custom_div_cmap()
 
   for um in unique_markers:
     masks = (markers == um)
@@ -837,7 +832,8 @@ def _color_map_by_feature(experiment=None,
 
       xticklabels = [lin[i] for i in range(6)]
       if scale == 'log':
-        xticklabels = [math.e**x for x in xticklabels]
+        # xticklabels = [math.e**x for x in xticklabels]
+        xticklabels = [math.e**x - 1 for x in xticklabels]
       elif scale == 'sqrt':
         xticklabels = [x**2 for x in xticklabels]
 
@@ -1296,8 +1292,9 @@ def _saveas_tex(saveas=None):
     os.mkdir(os.path.join(os.getcwd(), "images", "tex"))
   except FileExistsError:
     pass
-  file_name = saveas + ".tex"
-  path = os.path.join(os.getcwd(), "images", "tex", file_name)
+  file_name = saveas + ".tikz"
+  # path = os.path.join(os.getcwd(), "images", "tex", file_name)
+  path = os.path.join(os.getcwd(), "images", file_name)
   tikzplotlib.save(path)
 
 
@@ -1750,7 +1747,6 @@ def _level_background(fig=None, ax=None, saveas=None, tex=None):
   # plt.ylim(-1.4, 1.3)
 
   if tex:
-    import tikzplotlib
     file_name = saveas + ".tex"
     path = os.path.join(os.getcwd(), "images", "tex", file_name)
     tikzplotlib.save(path)

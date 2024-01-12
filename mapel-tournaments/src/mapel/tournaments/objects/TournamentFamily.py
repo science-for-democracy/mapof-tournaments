@@ -286,8 +286,11 @@ class TournamentFamily(Family):
                 f'Implicit sampling of family {self.family_id}. Add sample_count to params to specify the number of samples per json.'
             )
             count = self.size // len(filepaths)
+          # TODO fix after paper
+          # base_id = instance_id
           for i in range(count):
             instance_id += "_" + str(i)
+            # instance_id = base_id + "_" + str(i)
             tournaments[instance_id] = TournamentInstance.sample_tournament(
                 instance,
                 self.num_participants,

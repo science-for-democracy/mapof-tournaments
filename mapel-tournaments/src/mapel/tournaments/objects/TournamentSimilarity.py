@@ -112,10 +112,11 @@ def shortest_paths_histogram_distance2(u, v):
 def shortest_paths_histogram_distance_restricted(u, v, inner_distance=emd):
   n = len(u.graph.nodes())
   hist1 = get_shortest_paths_histograms(u)
-  hist1[:, -1] = 0
+  hist1[:, 2] += np.sum(hist1[:, 3:], axis=1)
+  hist1[:, 3:] = 0
   hist2 = get_shortest_paths_histograms(v)
-  hist2[:, -1] = 0
-  print(hist2)
+  hist2[:, 2] += np.sum(hist2[:, 3:], axis=1)
+  hist2[:, 3:] = 0
   cost_array = [[inner_distance(hist1[i], hist2[j]) for i in range(n)] for j in range(n)]
   return (solve_matching_vectors(cost_array)[0])
 
@@ -230,6 +231,11 @@ def ged_blp_wrapper(u, v):
   return round(ged_blp(u.graph, v.graph)[0])
 
 
+@register("ged_blp_parallel")
+def ged_blp_parallel_wrapper(u, v):
+  return round(ged_blp(u.graph, v.graph, multithreaded=True)[0])
+
+
 def initial_ged_heuristic(u, v, x):
   u_deg = sorted(u.out_degree(), key=lambda x: x[1])
   v_deg = sorted(v.out_degree(), key=lambda x: x[1])
@@ -253,7 +259,7 @@ class GurobiException(Exception):
     self.code = code
 
 
-def ged_blp(u, v, additional_constraints_func=None):
+def ged_blp(u, v, additional_constraints_func=None, multithreaded=False):
   """Compute the graph edit distance between two graphs using a binary linear program. """
   env = gp.Env(empty=True)
   env.setParam('OutputFlag', 0)
@@ -265,7 +271,8 @@ def ged_blp(u, v, additional_constraints_func=None):
 
   n = len(u.nodes())
   m = gp.Model('ged_blp', env=env)
-  m.setParam(gp.GRB.Param.Threads, 1)
+  if not multithreaded:
+    m.setParam(gp.GRB.Param.Threads, 1)
 
   # Vertex matching variables
   x = np.ndarray(shape=(n, n), dtype=object)
