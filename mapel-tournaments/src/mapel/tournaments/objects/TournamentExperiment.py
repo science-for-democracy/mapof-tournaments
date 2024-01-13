@@ -405,18 +405,29 @@ class TournamentExperiment(Experiment):
 
   def _compute_feature_parallel(self, feature_fun):
     feature_dict = {
-        'value': {}, 'time': {}
+        'value': {}, 'time': {}, 'value_std': {}, 'time_std': {}
     }
     work = [(feature_fun, self.instances[instance_id], self)
-            for instance_id in self.instances]
+            for instance_id in self.instances] * feature_fun.reps
     with Pool() as p:
-      values = list(
-          tqdm(p.imap(parallel_runner, work),
-               total=len(work),
-               desc=f'Computing feature: {feature_fun.__name__}'))
+      # values = list(
+      #     tqdm(p.map(parallel_runner, work),
+      #          total=len(work),
+      #          desc=f'Computing feature: {feature_fun.__name__}'))
+      values = process_map(parallel_runner, work, total=len(work))
     for instance_id, value in zip(self.instances, values):
-      feature_dict['value'][instance_id] = value
-      feature_dict['time'][instance_id] = -1
+      if instance_id not in feature_dict['value']:
+        feature_dict['value'][instance_id] = []
+        feature_dict['value_std'][instance_id] = []
+        feature_dict['time'][instance_id] = []
+        feature_dict['time_std'][instance_id] = []
+      feature_dict['value'][instance_id].append(value)
+      feature_dict['time'][instance_id].append(-1)
+    for instance_id in self.instances:
+      feature_dict['value_std'][instance_id] = np.std(feature_dict['value'][instance_id])
+      feature_dict['value'][instance_id] = np.mean(feature_dict['value'][instance_id])
+      feature_dict['time_std'][instance_id] = np.std(feature_dict['time'][instance_id])
+      feature_dict['time'][instance_id] = np.mean(feature_dict['time'][instance_id])
     return feature_dict
 
   def compute_feature(self,

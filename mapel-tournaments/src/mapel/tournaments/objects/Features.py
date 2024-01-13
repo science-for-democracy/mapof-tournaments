@@ -108,7 +108,7 @@ def slater_winner_count(tournament, _experiment):
   return len(slater_winners(tournament))
 
 
-@register("slater_winner_time", parallel=False, reps=5)
+@register("slater_winner_time", parallel=True, reps=5)
 def slater_winner_time(tournament, _experiment):
   """Calculates the time needed to find a single Slater winner of a given tournament"""
   start = time.time()
@@ -215,7 +215,6 @@ def single_elimination_win_chance(tournament, _experiment):
 @register("single_elimination_winners_count_ilp", parallel=True)
 def single_elimination_winners_count_ilp(tournament, _experiment):
   """Calculates the number of participants that can win a single elimination tournament."""
-  print(tournament.instance_id)
   count = 0
   for node in tournament.graph.nodes:
     if single_elimination_can_player_win(tournament, node)[0] > 0.5:
