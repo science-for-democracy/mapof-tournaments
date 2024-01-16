@@ -117,56 +117,56 @@ def print_map_2d(experiment,
   elif individual:
     basic_coloring_with_individual(experiment=experiment, ax=ax, individual=individual)
   else:
-    basic_coloring(experiment=experiment, ax=ax, dim=2, textual=textual, ms=ms)
+    basic_coloring(experiment=experiment, ax=ax, dim=2, textual=textual)
   # Custom annotations
-  annot = ax.annotate("",
-                      xy=(0, 0),
-                      xytext=(20, 20),
-                      textcoords="offset points",
-                      bbox=dict(boxstyle="round", fc="w"),
-                      arrowprops=dict(arrowstyle="->"))
+  # annot = ax.annotate("",
+  #                     xy=(0, 0),
+  #                     xytext=(20, 20),
+  #                     textcoords="offset points",
+  #                     bbox=dict(boxstyle="round", fc="w"),
+  #                     arrowprops=dict(arrowstyle="->"))
 
-  annot.set_visible(False)
+  # annot.set_visible(False)
 
-  def update_annot(inds, scs):
-    pos = ax.collections[scs[0]].get_offsets()[inds[0][0]]
-    annot.xy = pos
-    text = []
-    for ind, sc in zip(inds, scs):
-      text.append("\n".join(
-          [list(experiment.families.values())[sc].instance_ids[n] for n in ind]))
-    text = "\n".join(text)
-    annot.set_text(text)
-    annot.get_bbox_patch().set_facecolor('black')
-    annot.get_bbox_patch().set_alpha(0.4)
+  # def update_annot(inds, scs):
+  #   pos = ax.collections[scs[0]].get_offsets()[inds[0][0]]
+  #   annot.xy = pos
+  #   text = []
+  #   for ind, sc in zip(inds, scs):
+  #     text.append("\n".join(
+  #         [list(experiment.families.values())[sc].instance_ids[n] for n in ind]))
+  #   text = "\n".join(text)
+  #   annot.set_text(text)
+  #   annot.get_bbox_patch().set_facecolor('black')
+  #   annot.get_bbox_patch().set_alpha(0.4)
 
-  def all_contains(event):
-    conts = False
-    inds = []
-    scs = []
-    for i, sc in enumerate(ax.collections):
-      cont, ind = sc.contains(event)
-      conts = conts or cont
-      if cont:
-        inds.append(ind["ind"])
-        scs.append(i)
+  # def all_contains(event):
+  #   conts = False
+  #   inds = []
+  #   scs = []
+  #   for i, sc in enumerate(ax.collections):
+  #     cont, ind = sc.contains(event)
+  #     conts = conts or cont
+  #     if cont:
+  #       inds.append(ind["ind"])
+  #       scs.append(i)
 
-    return conts, inds, scs
+  #   return conts, inds, scs
 
-  def hover(event):
-    vis = annot.get_visible()
-    if event.inaxes == ax:
-      cont, inds, scs = all_contains(event)
-      if cont:
-        update_annot(inds, scs)
-        annot.set_visible(True)
-        fig.canvas.draw_idle()
-      else:
-        if vis:
-          annot.set_visible(False)
-          fig.canvas.draw_idle()
+  # def hover(event):
+  #   vis = annot.get_visible()
+  #   if event.inaxes == ax:
+  #     cont, inds, scs = all_contains(event)
+  #     if cont:
+  #       update_annot(inds, scs)
+  #       annot.set_visible(True)
+  #       fig.canvas.draw_idle()
+  #     else:
+  #       if vis:
+  #         annot.set_visible(False)
+  #         fig.canvas.draw_idle()
 
-  fig.canvas.mpl_connect("motion_notify_event", hover)
+  # fig.canvas.mpl_connect("motion_notify_event", hover)
   _basic_background(ax=ax,
                     legend=legend,
                     pad_inches=pad_inches,
@@ -538,20 +538,20 @@ def _import_values_for_feature(experiment,
     else:
       my_shade[instance_id] = shade
 
-      if shade is None or election_id in omit:
-        my_shade[election_id] = None
+      if shade is None or instance_id in omit:
+        my_shade[instance_id] = None
       elif normalizing_func is not None:
-        my_shade[election_id] = normalizing_func(shade)
+        my_shade[instance_id] = normalizing_func(shade)
       else:
-        my_shade[election_id] = shade
+        my_shade[instance_id] = shade
 
       if scale == 'log':
-        if election_id not in omit and my_shade[election_id] is not None:
-          my_shade[election_id] = math.log(my_shade[election_id] + 1)
+        if instance_id not in omit and my_shade[instance_id] is not None:
+          my_shade[instance_id] = math.log(my_shade[instance_id] + 1)
           # pass
       elif scale == 'sqrt':
-        if election_id not in omit and my_shade[election_id] is not None:
-          my_shade[election_id] = my_shade[election_id]**0.5
+        if instance_id not in omit and my_shade[instance_id] is not None:
+          my_shade[instance_id] = my_shade[instance_id]**0.5
   local_min = min(x for x in my_shade.values() if x is not None)
   local_max = max(x for x in my_shade.values() if x is not None)
   if feature_id == 'jr':
@@ -574,9 +574,9 @@ def _import_values_for_feature(experiment,
       shades.append(shade)
       names.append(instance_id)
 
-      mses.append(experiment.families[family_id].ms)
+      mses.append(family.ms)
 
-      marker = experiment.families[family_id].marker
+      marker = family.marker
       if marker_func is not None:
         marker = marker_func(shade)
       markers.append(marker)
@@ -764,24 +764,28 @@ def _color_map_by_feature(experiment=None,
 
   vmin = 0
   vmax = 1
-  # print(_min, _max)
+  print(_min, _max)
   if strech is not None:
     length = _max - _min
     vmin = 0 - (_min - strech[0]) / length
     vmax = 1 + (strech[1] - _max) / length
+  else:
+    strech = _min, _max
   # print(vmin, vmax)
 
   unique_markers = set(markers)
   images = []
 
-  print(markers)
-  print(mses)
+  # print(markers)
+  # print(mses)
 
   if rounding == 0:
-    num_colors = int(min(_max - _min + 1, 101))
+    num_colors = int(min(strech[1] - strech[0] + 1, 101))
     if num_colors < 20:
-      xticklabels = [str(q) for q in range(int(_min), int(_max) + 1)]
-      ticks_pos = [(2 * q + 1) / num_colors / 2 for q in range(num_colors)]
+      xticklabels = [str(q) for q in range(int(strech[0]), int(strech[1]) + 1)]
+      # ticks_pos = [(2 * q + 1) / num_colors / 2 for q in range(num_colors)]
+      half = (vmax - vmin) / num_colors / 2
+      ticks_pos = np.linspace(vmin + half, vmax - half, num_colors)
     if cmap is not None:
       linear_cmap = plt.cm.get_cmap(cmap)
       colors = linear_cmap(np.linspace(0, 1, num_colors))
@@ -877,7 +881,12 @@ def _color_map_by_feature(experiment=None,
   cb.ax.xaxis.set_ticks(ticks_pos)
 
   if xticklabels is not None:
-    cb.ax.set_xticklabels(xticklabels)
+    if len(max(xticklabels, key=lambda x: len(str(x)))) > 5:
+      rotation = -45
+    else:
+      rotation = 0
+      # make the ticklabels rotated
+    cb.ax.set_xticklabels(xticklabels, rotation=rotation)
 
   shades_dict = {}
   for i, name in enumerate(names):

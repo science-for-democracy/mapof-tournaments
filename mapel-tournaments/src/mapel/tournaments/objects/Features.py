@@ -108,7 +108,7 @@ def slater_winner_count(tournament, _experiment):
   return len(slater_winners(tournament))
 
 
-@register("slater_winner_time", parallel=True, reps=5)
+@register("slater_winner_time", parallel=True, reps=15)
 def slater_winner_time(tournament, _experiment):
   """Calculates the time needed to find a single Slater winner of a given tournament"""
   start = time.time()
@@ -166,6 +166,38 @@ def distortion(tournament, experiment):
   return np.mean(ratios)
 
 
+@register("distortion_restricted", parallel=True, reps=5)
+def distortion_restricted(tournament, experiment):
+  """Calculates the distortion of the embedding of a given tournament"""
+  eps = 1e-6
+  tournament_id = tournament.instance_id
+  tournament_coordinates = experiment.coordinates[tournament_id]
+  ids = list(experiment.distances.keys())
+  ids.remove(tournament_id)
+
+  n = len(tournament.graph.nodes())
+  coord_diameter = np.linalg.norm(
+      np.array(experiment.coordinates['ordered_0']) -
+      np.array(experiment.coordinates['rps_0']))
+  coordinates = np.array([experiment.coordinates[e] for e in ids])
+  coordinates_distances = np.linalg.norm(tournament_coordinates - coordinates, axis=1)
+  # norm_coordinates_distances = coordinates_distances / np.max(
+  #     np.linalg.norm(coordinates[None, :, :] - coordinates[:, None, :], axis=-1))
+  norm_coordinates_distances = coordinates_distances / coord_diameter
+
+  dist_diameter = experiment.distances['ordered_0']['rps_0']
+  distances = np.array([experiment.distances[tournament_id][i] for i in ids])
+  # norm_distances = distances / max(experiment.distances[tournament_id].values())
+  norm_distances = distances / dist_diameter
+
+  cutoff = 0.15
+  mins = np.minimum(norm_coordinates_distances, norm_distances)[norm_distances > cutoff]
+  maxs = np.maximum(norm_coordinates_distances, norm_distances)[norm_distances > cutoff]
+  ratios = maxs[mins > eps] / mins[mins > eps]
+  # ratios = np.nan_to_num(ratios, nan=1)
+  return np.mean(ratios)
+
+
 def _single_elimination_wins_probabilistic(g, sample_size=1000):
 
   def get_winner(g, node_permutation):
@@ -198,13 +230,13 @@ def _single_elimination_wins_probabilistic(g, sample_size=1000):
   return win_count
 
 
-@register("single_elimination_winners_count", parallel=True, reps=5)
+@register("single_elimination_winners_count", parallel=True, reps=1)
 def single_elimination_winners_count(tournament, _experiment):
   """Calculates the number of single elimination winners of a given tournament"""
   return len(_single_elimination_wins_probabilistic(tournament.graph))
 
 
-@register("single_elimination_win_chance", parallel=True, reps=5)
+@register("single_elimination_win_chance", parallel=True, reps=1)
 def single_elimination_win_chance(tournament, _experiment):
   """Calculates the chance to win the tournament by the most probable winner."""
   win_count = _single_elimination_wins_probabilistic(tournament.graph)
@@ -222,7 +254,7 @@ def single_elimination_winners_count_ilp(tournament, _experiment):
   return count
 
 
-@register("single_elimination_winners_count_ilp_time", parallel=False, reps=5)
+@register("single_elimination_winners_count_ilp_time", parallel=True, reps=15)
 def single_elimination_winners_count_ilp_time(tournament, _experiment):
   """Calculates the average time to check if a player can win a single elimination tournament."""
   start = time.time()
@@ -230,6 +262,18 @@ def single_elimination_winners_count_ilp_time(tournament, _experiment):
     single_elimination_can_player_win(tournament, node)[0]
   end = time.time()
   return (end - start)
+
+
+@register("single_elimination_winner_longest_ilp_time", parallel=False, reps=5)
+def single_elimination_winner_longest_ilp_time(tournament, _experiment):
+  """Calculates the average time to check if a player can win a single elimination tournament."""
+  worst_time = 0
+  for node in tournament.graph.nodes:
+    start = time.time()
+    single_elimination_can_player_win(tournament, node)[0]
+    end = time.time()
+    worst_time = max(worst_time, end - start)
+  return worst_time
 
 
 if __name__ == '__main__':

@@ -313,8 +313,7 @@ def from_ordinal_election(culture_id, num_participants, count, params):
   for i in range(count):
     election = oe.OrdinalElection(culture_id=culture_id,
                                   num_voters=num_voters,
-                                  num_candidates=num_participants,
-                                  params=params)
+                                  num_candidates=num_participants)
     tournaments.append(single(election))
   return tournaments
 

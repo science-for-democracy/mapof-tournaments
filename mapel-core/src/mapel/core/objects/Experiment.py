@@ -24,46 +24,46 @@ class Experiment:
   __metaclass__ = ABCMeta
   """Abstract set of instances."""
 
-    def __init__(self,
-                 experiment_id=None,
-                 instances=None,
-                 distances=None,
-                 coordinates=None,
-                 distance_id=None,
-                 embedding_id=None,
-                 is_exported=True,
-                 is_imported=True,
-                 clean=False,
-                 coordinates_names=None,
-                 fast_import=False,
-                 with_matrix=False,
-                 instance_type=None,
-                 dim=2):
+  def __init__(self,
+               experiment_id=None,
+               instances=None,
+               distances=None,
+               coordinates=None,
+               distance_id=None,
+               embedding_id=None,
+               is_exported=True,
+               is_imported=True,
+               clean=False,
+               coordinates_names=None,
+               fast_import=False,
+               with_matrix=False,
+               instance_type=None,
+               dim=2):
 
-        self.is_imported = is_imported
-        self.is_exported = is_exported
-        self.fast_import = fast_import
-        self.with_matrix = with_matrix
-        self.distance_id = distance_id
-        self.embedding_id = embedding_id
-        self.clean = clean
-        self.dim = dim
-        self.coordinates_lists = {}
-        self.features = {}
-        self.cultures = {}
-        self.families = {}
-        self.times = {}
-        self.stds = {}
-        self.matchings = {}
-        self.coordinates_by_families = {}
-        self.experiment_id = None
-        self.instances = None
-        self.distances = None
-        self.coordinates = None
-        self.num_families = None
-        self.num_instances = None
-        self.main_order = None
-        self.instance_type = instance_type
+    self.is_imported = is_imported
+    self.is_exported = is_exported
+    self.fast_import = fast_import
+    self.with_matrix = with_matrix
+    self.distance_id = distance_id
+    self.embedding_id = embedding_id
+    self.clean = clean
+    self.dim = dim
+    self.coordinates_lists = {}
+    self.features = {}
+    self.cultures = {}
+    self.families = {}
+    self.times = {}
+    self.stds = {}
+    self.matchings = {}
+    self.coordinates_by_families = {}
+    self.experiment_id = None
+    self.instances = None
+    self.distances = None
+    self.coordinates = None
+    self.num_families = None
+    self.num_instances = None
+    self.main_order = None
+    self.instance_type = instance_type
 
     if clean:
       self.clean_instances()
@@ -105,7 +105,9 @@ class Experiment:
     else:
       self.distances = {}
 
-  def import_coordinates(self, coordinates, coordinates_names):
+  def import_coordinates(self, coordinates, coordinates_names, dim=None):
+    if dim is None:
+      dim = self.dim
 
     if isinstance(coordinates, dict):
       self.coordinates = coordinates
@@ -115,64 +117,21 @@ class Experiment:
           for file_name in coordinates_names:
             self.coordinates_lists[file_name] = \
                 imports.add_coordinates_to_experiment(self,
-                                                      dim=self.dim,
+                                                      dim=dim,
                                                       file_name=file_name)
           self.coordinates = self.coordinates_lists[coordinates_names[0]]
         else:
-            self.instances = {}
-            self.distances = {}
-            self.coordinates = {}
-
-  def import_instances(self, instances):
-      if isinstance(instances, dict):
-          self.instances = instances
-      elif self.is_imported and self.experiment_id is not None:
-
-          try:
-              self.instances = self.add_instances_to_experiment()
-              self.num_instances = len(self.instances)
-          except FileNotFoundError:
-              self.instances = {}
-      else:
-          self.instances = {}
-
-  def import_distances(self, distances):
-      if isinstance(distances, dict):
-          self.distances = distances
-      elif self.is_imported and self.experiment_id is not None:
-          self.distances, self.times, self.stds, self.mappings = \
-              imports.add_distances_to_experiment(self)
-      else:
-          self.distances = {}
-
-  def import_coordinates(self, coordinates, coordinates_names, dim=None):
-      if dim is None:
-          dim = self.dim
-
-      if isinstance(coordinates, dict):
-          self.coordinates = coordinates
-      elif self.is_imported and self.experiment_id is not None:
-          try:
-              if coordinates_names is not None:
-                  for file_name in coordinates_names:
-                      self.coordinates_lists[file_name] = \
-                          imports.add_coordinates_to_experiment(self,
-                                                                dim=dim,
-                                                                file_name=file_name)
-                  self.coordinates = self.coordinates_lists[coordinates_names[0]]
-              else:
-                  self.coordinates = imports.add_coordinates_to_experiment(self, dim=dim)
-          except FileNotFoundError:
-              pass
-      else:
-          self.coordinates = {}
+          self.coordinates = imports.add_coordinates_to_experiment(self, dim=dim)
+      except FileNotFoundError:
+        pass
+    else:
+      self.coordinates = {}
 
   def reset_cultures(self):
-      self.families = {}
-      self.num_families = 0
-      self.instances = {}
-      self.num_instances = 0
-
+    self.families = {}
+    self.num_families = 0
+    self.instances = {}
+    self.num_instances = 0
 
   @abstractmethod
   def prepare_instances(self):
@@ -207,7 +166,7 @@ class Experiment:
     pass
 
   def embed_3d(self, **kwargs) -> None:
-        embed.embed(self, dim=3, **kwargs)
+    embed.embed(self, dim=3, **kwargs)
 
   def embed_2d(self, **kwargs) -> None:
     embed.embed(self, dim=2, **kwargs)
@@ -431,7 +390,7 @@ class Experiment:
           'l1-positionwise': "$\ell_1$-Positionwise",
           'l1-pairwise': "$\ell_1$-Pairwise",
           'ged_blp': 'Graph Edit Distance',
-          'katz_cen': 'Katz Centrality',
+          'katz_cen': 'Katz Distance',
       }.get(name, name)
 
     for name_1, name_2 in itertools.combinations(names, 2):
@@ -463,7 +422,7 @@ class Experiment:
       plt.xlim(left=0)
       plt.ylim(bottom=0)
 
-      plt.xticks(fontsize=ticks_size)
+      plt.xticks(range(21), fontsize=ticks_size)
       plt.yticks(fontsize=ticks_size)
 
       plt.xlabel(nice(name_1), size=label_size)
@@ -483,6 +442,7 @@ class Experiment:
       saveas = f'corr_{name_1}_{name_2}.png'
       if tex:
         pr._saveas_tex(saveas=saveas)
+      plt.tight_layout()
       plt.savefig(path + saveas, pad_inches=1)
       # plt.show()
 

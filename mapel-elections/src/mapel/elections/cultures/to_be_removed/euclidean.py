@@ -1,8 +1,9 @@
-import numpy as np
-import math
-from numpy import linalg
-import os
 import csv
+import math
+import os
+
+import numpy as np
+from numpy import linalg
 
 ####################################################################################################
 # Approval Euclidean Election Models
@@ -48,7 +49,7 @@ def generate_approval_euclidean_votes(num_voters: int = None,
                                       space: str = 'uniform',
                                       radius: float = 0,
                                       **kwargs) -> list:
-    """
+  """
     Generates approval votes from euclidean model.
 
         Parameters

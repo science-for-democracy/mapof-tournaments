@@ -54,6 +54,7 @@ def slater_winners(tournament):
   while True:
     try:
       distance, matching = ged_blp(transitive, g, additional_constraints_func=add_constraints)
+      distance = round(distance)
       if distance > min_distance:
         break
       min_distance = distance

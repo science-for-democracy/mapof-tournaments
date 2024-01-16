@@ -1,33 +1,19 @@
 import ast
 import csv
-import itertools
 import json
 import os
-import pickle
 import random
 import time
-from collections import defaultdict
-from enum import Enum
 from multiprocessing import Pool
-from multiprocessing.pool import ThreadPool
-from random import uniform
 
 import mapel.core.persistence.experiment_exports as exports
-import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
-import pandas as pd
-import pandas_access as mdb
 from mapel.core.objects.Experiment import Experiment
-from mapel.core.objects.Family import Family
-from mapel.core.objects.Instance import Instance
 from mapel.core.utils import make_folder_if_do_not_exist
-from mapel.elections.objects.ElectionFamily import ElectionFamily
 from mapel.tournaments.objects.Features import get_feature
 from mapel.tournaments.objects.TournamentFamily import TournamentFamily
 from mapel.tournaments.objects.TournamentSimilarity import (get_distance,
                                                             parallel_runner)
-from matplotlib.font_manager import json_dump
 from numpy.lib.twodim_base import triu_indices
 from progress.bar import Bar
 from tqdm import tqdm
@@ -125,6 +111,7 @@ class TournamentExperiment(Experiment):
         instance_type = 'tournament'
         color = 'black'
         marker = 'o'
+        ms = 20
         alpha = 1.
         show = True
         label = 'none'
@@ -163,6 +150,9 @@ class TournamentExperiment(Experiment):
         if 'marker' in row.keys():
           marker = str(row['marker']).strip()
 
+        if 'ms' in row.keys():
+          ms = int(row['ms'])
+
         if 'alpha' in row.keys():
           alpha = float(row['alpha'])
 
@@ -194,6 +184,7 @@ class TournamentExperiment(Experiment):
             show=show,
             size=size,
             marker=marker,
+            ms=ms,
             starting_from=starting_from,
             num_participants=num_participants,
             # path=path,
@@ -345,7 +336,10 @@ class TournamentExperiment(Experiment):
       for i, election_1 in enumerate(self.distances.keys()):
         for j, election_2 in enumerate(self.distances.keys()):
           if i < j or (i == j and self_distances):
-            distance = str(distances[election_1][election_2])
+            try:
+              distance = str(distances[election_1][election_2])
+            except:
+              distance = str(distances[election_2][election_1])
             time_ = str(times[election_1][election_2]) if times else 0
             writer.writerow([election_1, election_2, distance, time_])
 
@@ -414,8 +408,14 @@ class TournamentExperiment(Experiment):
       #     tqdm(p.map(parallel_runner, work),
       #          total=len(work),
       #          desc=f'Computing feature: {feature_fun.__name__}'))
-      values = process_map(parallel_runner, work, total=len(work))
-    for instance_id, value in zip(self.instances, values):
+      values = process_map(
+          parallel_runner,
+          work,
+          total=len(work),
+          max_workers=os.cpu_count() - 2,
+      )
+    for w, value in zip(work, values):
+      instance_id = w[1].instance_id
       if instance_id not in feature_dict['value']:
         feature_dict['value'][instance_id] = []
         feature_dict['value_std'][instance_id] = []
@@ -424,6 +424,7 @@ class TournamentExperiment(Experiment):
       feature_dict['value'][instance_id].append(value)
       feature_dict['time'][instance_id].append(-1)
     for instance_id in self.instances:
+      print(len(feature_dict['value'][instance_id]))
       feature_dict['value_std'][instance_id] = np.std(feature_dict['value'][instance_id])
       feature_dict['value'][instance_id] = np.mean(feature_dict['value'][instance_id])
       feature_dict['time_std'][instance_id] = np.std(feature_dict['time'][instance_id])
