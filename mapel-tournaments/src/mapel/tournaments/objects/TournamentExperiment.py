@@ -31,7 +31,8 @@ class TournamentExperiment(Experiment):
                coordinates_names=None,
                embedding_id='mds',
                fast_import=False,
-               with_matrix=False):
+               with_matrix=False,
+               is_exported=True):
     super().__init__(instances=instances,
                      distances=distances,
                      coordinates=coordinates,
@@ -40,7 +41,8 @@ class TournamentExperiment(Experiment):
                      coordinates_names=coordinates_names,
                      embedding_id=embedding_id,
                      fast_import=fast_import,
-                     with_matrix=with_matrix)
+                     with_matrix=with_matrix,
+                     is_exported=is_exported)
     self.instance_type = 'tournaments'
 
   def __str__(self):
@@ -371,11 +373,41 @@ class TournamentExperiment(Experiment):
       print(''.join([str(x) + '\n' for x in top]))
     self._store_distances_to_file(self.distance_id, self.distances, None, False)
 
+  # TODO remove after paper
+  from . import helpers
+
+  @helpers.cache('katz-alpha-plots')
+  def compute_katz_distances(
+      self,
+      alpha,
+      distance_id: str = "katz_cen",
+  ):
+    self.distances = dict()
+    n = len(self.instances)
+    instance_ids = list(self.instances.keys())
+    tournaments = list(self.instances.values())
+    indices = list(zip(*triu_indices(n, 1)))
+    indices_to_compute = [
+        (i, j) for i,
+        j in indices
+        if instance_ids[i] not in self.distances or instance_ids[j] not in self.distances
+    ]
+    work = [(get_distance('katz_cen_test'), tournaments[i], tournaments[j], alpha) for i,
+            j in indices_to_compute]
+    with Pool() as p:
+      distances = list(tqdm(p.imap(parallel_runner, work, chunksize=500),
+                            total=len(work)))
+    for d, (i, j) in zip(distances, indices_to_compute):
+      self.distances.setdefault(instance_ids[i], dict())
+      self.distances.setdefault(instance_ids[j], dict())
+      self.distances[instance_ids[j]][instance_ids[i]] = self.distances[instance_ids[i]][
+          instance_ids[j]] = d
+
   def save_tournament_plots(self, path: str = 'graphs', **kwargs):
     if not os.path.exists(path):
       os.makedirs(path)
     for k, v in self.instances.items():
-      v.save_graph_plot(os.path.join(path, str(k), **kwargs))
+      v.save_graph_plot(os.path.join(path, str(k)), **kwargs)
 
   def _compute_feature(self, feature_fun):
     feature_dict = {

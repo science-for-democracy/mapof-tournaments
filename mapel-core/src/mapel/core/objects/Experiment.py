@@ -422,7 +422,8 @@ class Experiment:
       plt.xlim(left=0)
       plt.ylim(bottom=0)
 
-      plt.xticks(range(21), fontsize=ticks_size)
+      # TODO change after paper
+      plt.xticks(range(0, 21, 2), fontsize=ticks_size)
       plt.yticks(fontsize=ticks_size)
 
       plt.xlabel(nice(name_1), size=label_size)

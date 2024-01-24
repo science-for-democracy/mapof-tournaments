@@ -119,54 +119,55 @@ def print_map_2d(experiment,
   else:
     basic_coloring(experiment=experiment, ax=ax, dim=2, textual=textual)
   # Custom annotations
-  # annot = ax.annotate("",
-  #                     xy=(0, 0),
-  #                     xytext=(20, 20),
-  #                     textcoords="offset points",
-  #                     bbox=dict(boxstyle="round", fc="w"),
-  #                     arrowprops=dict(arrowstyle="->"))
+  annot = ax.annotate("",
+                      xy=(0, 0),
+                      xytext=(20, 20),
+                      textcoords="offset points",
+                      bbox=dict(boxstyle="round", fc="w"),
+                      arrowprops=dict(arrowstyle="->"))
 
-  # annot.set_visible(False)
+  annot.set_visible(False)
 
-  # def update_annot(inds, scs):
-  #   pos = ax.collections[scs[0]].get_offsets()[inds[0][0]]
-  #   annot.xy = pos
-  #   text = []
-  #   for ind, sc in zip(inds, scs):
-  #     text.append("\n".join(
-  #         [list(experiment.families.values())[sc].instance_ids[n] for n in ind]))
-  #   text = "\n".join(text)
-  #   annot.set_text(text)
-  #   annot.get_bbox_patch().set_facecolor('black')
-  #   annot.get_bbox_patch().set_alpha(0.4)
+  def update_annot(inds, scs):
+    pos = ax.collections[scs[0]].get_offsets()[inds[0][0]]
+    annot.xy = pos
+    text = []
+    for ind, sc in zip(inds, scs):
+      text.append("\n".join(
+          [list(experiment.families.values())[sc].instance_ids[n] for n in ind]))
+    text = "\n".join(text)
+    print(text)
+    annot.set_text(text)
+    annot.get_bbox_patch().set_facecolor('black')
+    annot.get_bbox_patch().set_alpha(0.4)
 
-  # def all_contains(event):
-  #   conts = False
-  #   inds = []
-  #   scs = []
-  #   for i, sc in enumerate(ax.collections):
-  #     cont, ind = sc.contains(event)
-  #     conts = conts or cont
-  #     if cont:
-  #       inds.append(ind["ind"])
-  #       scs.append(i)
+  def all_contains(event):
+    conts = False
+    inds = []
+    scs = []
+    for i, sc in enumerate(ax.collections):
+      cont, ind = sc.contains(event)
+      conts = conts or cont
+      if cont:
+        inds.append(ind["ind"])
+        scs.append(i)
 
-  #   return conts, inds, scs
+    return conts, inds, scs
 
-  # def hover(event):
-  #   vis = annot.get_visible()
-  #   if event.inaxes == ax:
-  #     cont, inds, scs = all_contains(event)
-  #     if cont:
-  #       update_annot(inds, scs)
-  #       annot.set_visible(True)
-  #       fig.canvas.draw_idle()
-  #     else:
-  #       if vis:
-  #         annot.set_visible(False)
-  #         fig.canvas.draw_idle()
+  def hover(event):
+    vis = annot.get_visible()
+    if event.inaxes == ax:
+      cont, inds, scs = all_contains(event)
+      if cont:
+        update_annot(inds, scs)
+        annot.set_visible(True)
+        fig.canvas.draw_idle()
+      else:
+        if vis:
+          annot.set_visible(False)
+          fig.canvas.draw_idle()
 
-  # fig.canvas.mpl_connect("motion_notify_event", hover)
+  fig.canvas.mpl_connect("motion_notify_event", hover)
   _basic_background(ax=ax,
                     legend=legend,
                     pad_inches=pad_inches,
@@ -786,6 +787,11 @@ def _color_map_by_feature(experiment=None,
       # ticks_pos = [(2 * q + 1) / num_colors / 2 for q in range(num_colors)]
       half = (vmax - vmin) / num_colors / 2
       ticks_pos = np.linspace(vmin + half, vmax - half, num_colors)
+    # TODO remove after paper
+    if num_colors == 12:
+      xticklabels = [str(q) for q in range(int(strech[0]), int(strech[1]) + 1)]
+      half = (vmax - vmin) / num_colors / 2
+      ticks_pos = np.linspace(vmin + half, vmax - half, num_colors)
     if cmap is not None:
       linear_cmap = plt.cm.get_cmap(cmap)
       colors = linear_cmap(np.linspace(0, 1, num_colors))
@@ -866,7 +872,7 @@ def _color_map_by_feature(experiment=None,
       images[0],
       orientation="horizontal",
       pad=0.1,
-      shrink=0.55,
+      shrink=0.70,
       ticks=ticks,
   )
 
@@ -885,7 +891,12 @@ def _color_map_by_feature(experiment=None,
       rotation = -45
     else:
       rotation = 0
-      # make the ticklabels rotated
+
+    # TODO remove after paper
+    xticklabels = [x[:4] for x in xticklabels]
+    xticklabels = [x[:-1] if x[-1] == '.' else x for x in xticklabels]
+    if rounding != 0:
+      xticklabels = [x + "s" for x in xticklabels]
     cb.ax.set_xticklabels(xticklabels, rotation=rotation)
 
   shades_dict = {}
