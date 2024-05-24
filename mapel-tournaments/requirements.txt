@@ -1,2 +1,2 @@
 mapel-core>=2.0.0
-networkx>=3.1
+mapel-elections>=2.0.0

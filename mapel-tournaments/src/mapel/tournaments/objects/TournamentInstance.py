@@ -302,15 +302,15 @@ class TournamentInstance(Instance):
       d[i][j] = None
     G = pgv.AGraph(d, directed=True)
     G.node_attr["shape"] = "circle"
-    # G.edge_attr.update(len="2.0")
+    G.edge_attr.update(len="2.0")
     G.layout(prog="circo")
     if relabel:
       for i in G.nodes():
         G.get_node(i).attr["label"] = G.out_degree(i)
     return G
 
-  def save_graph_plot(self, path, **kwargs):
-    G = self._to_graphviz(**kwargs)
+  def save_graph_plot(self, path, relabel=False, **kwargs):
+    G = self._to_graphviz(relabel=relabel)
     if path[:-4] != '.png':
       path = path + '.png'
-    G.draw(path)
+    G.draw(path, **kwargs)

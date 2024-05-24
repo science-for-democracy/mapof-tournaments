@@ -1,3 +1,5 @@
+import mapel.tournaments.objects.TournamentSolutions as TournamentSolutions
+
 from .objects import (Features, TournamentCultures, TournamentSimilarity,
                       helpers)
 from .objects.TournamentExperiment import TournamentExperiment
