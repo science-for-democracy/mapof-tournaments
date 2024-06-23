@@ -388,6 +388,7 @@ class TournamentExperiment(Experiment):
             self.distances.setdefault(instance_ids[j], dict())
             self.distances[instance_ids[j]][instance_ids[i]] = self.distances[instance_ids[i]][
                 instance_ids[j]] = d
+        self._store_distances_to_file(self.distance_id, self.distances, None, False)
 
     def save_tournament_plots(self, path: str = 'graphs', **kwargs):
         if not os.path.exists(path):
@@ -395,27 +396,34 @@ class TournamentExperiment(Experiment):
         for k, v in self.instances.items():
             v.save_graph_plot(os.path.join(path, str(k)), **kwargs)
 
-    def _compute_feature(self, feature_fun):
-        feature_dict = {'value': {}, 'time': {}, 'value_std': {}, 'time_std': {}}
-        for instance_id in tqdm(self.instances, desc=f'Computing feature: {feature_fun.__name__}'):
-            instance = self.instances[instance_id]
+    def _compute_feature(self, feature_fun, existing={}):
+        feature_dict = {'value': existing, 'time': {}, 'value_std': {}, 'time_std': {}}
+        for instance_id in tqdm([instance for instance in self.instances],
+                                desc=f'Computing feature: {feature_fun.__name__}'):
             values = []
             times = []
-            for _ in range(feature_fun.reps):
-                start = time.time()
-                values.append(feature_fun(instance, self))
-                end = time.time()
-                times.append(end - start)
+
+            if instance_id not in feature_dict['value']:
+                instance = self.instances[instance_id]
+                for _ in range(feature_fun.reps):
+                    start = time.time()
+                    values.append(feature_fun(instance, self))
+                    end = time.time()
+                    times.append(end - start)
+            else:
+                values = [existing[instance_id]]
+                times = [-1]
+
             feature_dict['value'][instance_id] = np.mean(values)
             feature_dict['time'][instance_id] = np.mean(times)
             feature_dict['value_std'][instance_id] = np.std(values)
             feature_dict['time_std'][instance_id] = np.std(times)
         return feature_dict
 
-    def _compute_feature_parallel(self, feature_fun):
-        feature_dict = {'value': {}, 'time': {}, 'value_std': {}, 'time_std': {}}
+    def _compute_feature_parallel(self, feature_fun, existing={'value': {}}):
+        feature_dict = {'value': existing, 'time': {}, 'value_std': {}, 'time_std': {}}
         work = [(feature_fun, self.instances[instance_id], self)
-                for instance_id in self.instances] * feature_fun.reps
+                for instance_id in self.instances if instance_id not in feature_dict['value']] * feature_fun.reps
         with Pool() as p:
             # values = list(
             #     tqdm(p.map(parallel_runner, work),
@@ -437,11 +445,13 @@ class TournamentExperiment(Experiment):
             feature_dict['value'][instance_id].append(value)
             feature_dict['time'][instance_id].append(-1)
         for instance_id in self.instances:
-            print(len(feature_dict['value'][instance_id]))
+            # print(len(feature_dict['value'][instance_id]))
             feature_dict['value_std'][instance_id] = np.std(feature_dict['value'][instance_id])
             feature_dict['value'][instance_id] = np.mean(feature_dict['value'][instance_id])
-            feature_dict['time_std'][instance_id] = np.std(feature_dict['time'][instance_id])
-            feature_dict['time'][instance_id] = np.mean(feature_dict['time'][instance_id])
+            feature_dict['time_std'][instance_id] = np.std(feature_dict['time'][instance_id] if instance_id in
+                                                           feature_dict['time'] else -1)
+            feature_dict['time'][instance_id] = np.mean(feature_dict['time'][instance_id] if instance_id in
+                                                        feature_dict['time'] else -1)
         return feature_dict
 
     def compute_feature(self, feature_id, feature_long_id=None, saveas=None, clean=False, reps=25, **kwargs):
@@ -453,14 +463,17 @@ class TournamentExperiment(Experiment):
         saveas = feature_long_id if saveas is None else saveas
         filepath = os.path.join(folder_path, f'{saveas}.csv')
         if os.path.exists(filepath) and not clean:
-            print(f"Feature {feature_id} already exists. Not calculating...")
-            return {'value': self.import_feature(feature_id)}
+            existing = self.import_feature(feature_id)
+            # print(f"Feature {feature_id} already exists. Not calculating...")
+            # return {'value': self.import_feature(feature_id)}
+        else:
+            existing = {}
         feature_fun = get_feature(feature_id)
 
         if feature_id[-9:] == '_parallel':
-            feature_dict = self._compute_feature_parallel(feature_fun)
+            feature_dict = self._compute_feature_parallel(feature_fun, existing)
         else:
-            feature_dict = self._compute_feature(feature_fun)
+            feature_dict = self._compute_feature(feature_fun, existing)
 
         if self.is_exported:
             exports.export_feature_to_file(self, feature_id, saveas, feature_dict)

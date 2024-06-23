@@ -163,15 +163,20 @@ def eigen_centrality(u, v, inner_distance=l1):
     return centrality_helper(nx.eigenvector_centrality_numpy, u, v, inner_distance)
 
 
-# @register("katz_cen_test")
-# def katz_centrality_test(u, v, alpha, inner_distance=l1):
-#     u_centrality = np.array(list(sorted(nx.katz_centrality_numpy(u.graph, alpha=alpha).values())))
-#     v_centrality = np.array(list(sorted(nx.katz_centrality_numpy(v.graph, alpha=alpha).values())))
-#     return inner_distance(u_centrality, v_centrality)
+@register("katz_cen_test")
+def katz_centrality_test(u, v, alpha, inner_distance=l1):
+    u_centrality = np.array(list(sorted(nx.katz_centrality_numpy(u.graph, alpha=alpha).values())))
+    v_centrality = np.array(list(sorted(nx.katz_centrality_numpy(v.graph, alpha=alpha).values())))
+    return inner_distance(u_centrality, v_centrality)
 
 
 @register("katz_cen")
 def katz_centrality(u, v, inner_distance=l1):
+    return centrality_helper(nx.katz_centrality_numpy, u, v, inner_distance)
+
+
+@register("katz_emd")
+def katz_emd(u, v, inner_distance=emd):
     return centrality_helper(nx.katz_centrality_numpy, u, v, inner_distance)
 
 
@@ -313,7 +318,7 @@ def ged_blp_old_wrapper(u, v):
     return round(ged_blp_old(u.graph, v.graph)[0])
 
 
-def ged_blp_old(u, v):
+def ged_blp_old(u, v, multithreaded=False):
     """Compute the graph edit distance between two graphs using a binary linear program. """
     env = gp.Env(empty=True)
     env.setParam('OutputFlag', 0)
@@ -325,6 +330,8 @@ def ged_blp_old(u, v):
 
     n = len(u.nodes())
     m = gp.Model('ged_blp', env=env)
+    if not multithreaded:
+        m.setParam(gp.GRB.Param.Threads, 1)
     # Vertex matching variables
     x = np.ndarray(shape=(n, n), dtype=object)
     for i in range(n):

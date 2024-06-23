@@ -234,7 +234,7 @@ class TournamentFamily(Family):
             with open(filepath) as f:
                 instance = TournamentInstance.from_dict_of_lists(json.load(f), self.experiment_id, instance_id,
                                                                  self.culture_id)
-                if self.num_participants < len(instance.graph.nodes):
+                if self.num_participants <= len(instance.graph.nodes):
                     if 'sample_count' in self.params:
                         count = self.params['sample_count']
                     else:

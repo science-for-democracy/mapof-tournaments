@@ -52,6 +52,7 @@ def register(name: str | list[str] = [], parallel=False, reps=1, skip_function_n
     def decorator(func):
         if isinstance(name, str):
             names = [name]
+
         else:
             names = name
         if isinstance(names, list):
@@ -71,6 +72,13 @@ def register(name: str | list[str] = [], parallel=False, reps=1, skip_function_n
         return func
 
     return decorator
+
+
+@register("distance_from_ordered")
+def distance_from_ordered(tournament: TournamentInstance, experiment):
+    if tournament.instance_id == 'ordered_0':
+        return 0
+    return experiment.distances[tournament.instance_id]['ordered_0']
 
 
 @register("local_transitivity")
@@ -105,6 +113,15 @@ def slater_winner_count(tournament, _experiment):
     return len(slater_winners(tournament))
 
 
+@register("slater_winner_time", parallel=True, reps=5)
+def slater_winner_time(tournament, _experiment):
+    """Calculates the time needed to find a single Slater winner of a given tournament"""
+    start = time.time()
+    slater_winner(tournament)
+    end = time.time()
+    return end - start
+
+
 @register('slater_equals_copeland', parallel=True)
 def slater_equals_copeland(tournament, _experiment):
     """Calculates whether the Slater winners equal the Copeland winners"""
@@ -124,6 +141,12 @@ def unique_slater_equals_copeland(tournament, _experiment):
     if len(slater) != 1:
         return 0
     return 1 if slater[0] == copeland[0] else 0
+
+
+@register("copeland_winners_count")
+def copeland_winner_count(tournament, _experiment):
+    """Calculates the number of copeland winners of a given tournament"""
+    return len(copeland_winners(tournament))
 
 
 @register("top_cycle_winners_count")
@@ -242,6 +265,7 @@ def single_elimination_win_chance(tournament, _experiment):
     """Calculates the chance to win the tournament by the most probable winner."""
     win_count = _single_elimination_wins_probabilistic(tournament.graph)
     winner = max(win_count.items(), key=lambda x: x[1])
+    print(len(win_count), winner[1])
     return winner[1] / sum(win_count.values())
 
 
@@ -271,10 +295,11 @@ def single_elimination_winner_longest_ilp_time(tournament, _experiment):
     worst_time = 0
     for node in tournament.graph.nodes:
         start = time.time()
-        single_elimination_can_player_win(tournament, node)[0]
+        a = single_elimination_can_player_win(tournament, node)[0]
+        print(a)
         end = time.time()
         worst_time = max(worst_time, end - start)
-    return worst_time
+    return worst_time * len(tournament.graph.nodes)
 
 
 if __name__ == '__main__':
