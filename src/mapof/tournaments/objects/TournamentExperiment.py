@@ -6,13 +6,13 @@ import random
 import time
 from multiprocessing import Pool
 
-import mapel.core.persistence.experiment_exports as exports
+import mapof.core.persistence.experiment_exports as exports
 import numpy as np
-from mapel.core.objects.Experiment import Experiment
-from mapel.core.utils import make_folder_if_do_not_exist
-from mapel.tournaments.objects.Features import get_feature
-from mapel.tournaments.objects.TournamentFamily import TournamentFamily
-from mapel.tournaments.objects.TournamentSimilarity import (get_distance,
+from mapof.core.objects.Experiment import Experiment
+from mapof.core.utils import make_folder_if_do_not_exist
+from mapof.tournaments.objects.Features import get_feature
+from mapof.tournaments.objects.TournamentFamily import TournamentFamily
+from mapof.tournaments.objects.TournamentSimilarity import (get_distance,
                                                             parallel_runner)
 from matplotlib.pyplot import ylabel
 from numpy.lib.twodim_base import triu_indices

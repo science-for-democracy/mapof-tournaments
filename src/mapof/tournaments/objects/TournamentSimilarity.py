@@ -1,8 +1,8 @@
 import gurobipy as gp
 import networkx as nx
 import numpy as np
-from mapel.core.inner_distances import emd, l1
-from mapel.core.matchings import solve_matching_vectors
+from mapof.core.distances import emd, l1
+from mapof.core.matchings import solve_matching_vectors
 
 registered_distances = {}
 aliases = {}

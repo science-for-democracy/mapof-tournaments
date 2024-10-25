@@ -1,13 +1,13 @@
 import gurobipy as gp
-import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-from mapel.tournaments.objects.helpers import \
-    fill_with_losers_up_to_a_power_of_two
-from mapel.tournaments.objects.TournamentCultures import ordered
-from mapel.tournaments.objects.TournamentInstance import TournamentInstance
-from mapel.tournaments.objects.TournamentSimilarity import (GurobiException,
+
+from mapof.tournaments.objects.TournamentCultures import ordered
+from mapof.tournaments.objects.TournamentInstance import TournamentInstance
+from mapof.tournaments.objects.TournamentSimilarity import (GurobiException,
                                                             ged_blp)
+from mapof.tournaments.objects.helpers import \
+    fill_with_losers_up_to_a_power_of_two
 
 
 def copeland_winners(tournament):

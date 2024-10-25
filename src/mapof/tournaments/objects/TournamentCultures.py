@@ -277,7 +277,7 @@ def uniform_weighted(num_participants, count, params):
 
 
 ### From elections
-import mapel.elections.objects.OrdinalElection as oe
+# import mapof.elections.objects.OrdinalElection as oe
 
 
 def from_ordinal_election(culture_id, num_participants, count, params):
@@ -420,7 +420,7 @@ def nauty_simple(n, size, _params):
     return nauty(n, size, {'resmod': f"0/{mod}"})
 
 
-import mapel.tournaments.objects.generate_profiles as pl
+import mapof.tournaments.objects.generate_profiles as pl
 #### TODO: Code below is taken from https://github.com/uschmidtk/MoV/blob/master/experiments.py
 import pandas as pd
 

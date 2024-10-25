@@ -1,2 +1,0 @@
-mapel-core>=2.0.0
-mapel-elections>=2.0.0

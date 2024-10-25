@@ -1,0 +1,3 @@
+mapof==0.1.0dev4
+pandas~=2.2.3
+tqdm

@@ -3,8 +3,8 @@ from random import uniform
 
 import networkx as nx
 import numpy as np
-from mapel.core.objects.Instance import Instance
-from mapel.tournaments.objects.TournamentCultures import (ordered,
+from mapof.core.objects.Instance import Instance
+from mapof.tournaments.objects.TournamentCultures import (ordered,
                                                           rock_paper_scissors)
 
 

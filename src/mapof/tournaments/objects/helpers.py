@@ -3,8 +3,9 @@ import os
 import pickle
 
 import networkx as nx
-from mapel.core.utils import make_folder_if_do_not_exist
-from mapel.tournaments.objects.TournamentCultures import rock_paper_scissors
+from mapof.core.utils import make_folder_if_do_not_exist
+
+from mapof.tournaments.objects.TournamentCultures import rock_paper_scissors
 
 
 def load_dict_from_file(path):

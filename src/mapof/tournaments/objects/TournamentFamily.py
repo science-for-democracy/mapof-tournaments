@@ -2,18 +2,21 @@ import json
 import os
 import pickle
 from collections import defaultdict
-from enum import StrEnum
+from enum import Enum
 
-import mapel.tournaments.objects.TournamentCultures as cultures
+import mapof.tournaments.objects.TournamentCultures as cultures
 import networkx as nx
 import numpy as np
-from mapel.core.objects.Family import Family
-from mapel.tournaments.objects.TournamentCultures import nauty
-from mapel.tournaments.objects.TournamentInstance import TournamentInstance
-from mapel.tournaments.objects.TournamentSimilarity import ged_blp
+from mapof.core.objects.Family import Family
+from mapof.tournaments.objects.TournamentCultures import nauty
+from mapof.tournaments.objects.TournamentInstance import TournamentInstance
+from mapof.tournaments.objects.TournamentSimilarity import ged_blp
 from numpy.lib.twodim_base import triu_indices
 from progress.bar import Bar
 
+
+class StrEnum(str, Enum):
+    pass
 
 class InstanceType(StrEnum):
     TOURNAMENT = 'tournament'

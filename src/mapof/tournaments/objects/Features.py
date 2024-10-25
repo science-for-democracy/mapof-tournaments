@@ -6,13 +6,13 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from fuzzywuzzy import fuzz
-from mapel.tournaments.objects.helpers import log2_ceil
-from mapel.tournaments.objects.TournamentCultures import (ordered,
+from mapof.tournaments.objects.helpers import log2_ceil
+from mapof.tournaments.objects.TournamentCultures import (ordered,
                                                           rock_paper_scissors)
-from mapel.tournaments.objects.TournamentInstance import TournamentInstance
-from mapel.tournaments.objects.TournamentSimilarity import (ged_blp,
+from mapof.tournaments.objects.TournamentInstance import TournamentInstance
+from mapof.tournaments.objects.TournamentSimilarity import (ged_blp,
                                                             get_distance)
-from mapel.tournaments.objects.TournamentSolutions import (
+from mapof.tournaments.objects.TournamentSolutions import (
     copeland_winners, single_elimination_can_player_win, slater_winner,
     slater_winners, top_cycle_winners)
 

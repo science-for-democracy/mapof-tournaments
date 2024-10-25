@@ -1,4 +1,4 @@
-import mapel.tournaments.objects.TournamentSolutions as TournamentSolutions
+import mapof.tournaments.objects.TournamentSolutions as TournamentSolutions
 
 from .objects import (Features, TournamentCultures, TournamentSimilarity,
                       helpers)
