@@ -1,5 +1,5 @@
-[//]: # ([![Tests]&#40;https://github.com/science-for-democracy/mapof-tournaments/actions/workflows/python-tests.yml/badge.svg&#41;]&#40;https://github.com/science-for-democracy/mapof-tournaments/actions/workflows/python-tests.yml&#41;)
-[//]: # ([![codecov]&#40;https://codecov.io/gh/science-for-democracy/mapof-tournaments/graph/badge.svg?token=MB6YOJMFIS&#41;]&#40;https://codecov.io/gh/science-for-democracy/mapof-tournaments&#41;)
+[![Tests](https://github.com/science-for-democracy/mapof-tournaments/actions/workflows/python-tests.yml/badge.svg)](https://github.com/science-for-democracy/mapof-tournaments/actions/workflows/python-tests.yml)
+[![codecov](https://codecov.io/gh/science-for-democracy/mapof-tournaments/graph/badge.svg?token=6b53b42d-f913-4b29-bb4d-5d336ec09499)](https://codecov.io/gh/science-for-democracy/mapof-tournaments)
 
 # Mapof-tournaments
 This pacakge is a plugin for [Mapof](https://pypi.org/project/mapof/) extending
